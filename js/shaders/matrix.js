@@ -95,6 +95,7 @@ export const FRAG_MATRIX = /* glsl */`
     float intensity = max(img * 0.55, rain);
     vec3 green = mix(vec3(0.05, 0.55, 0.12), vec3(0.72, 1.0, 0.80), headGlow * trail * img);
     col += green * glyph * intensity;
-    gl_FragColor = vec4(col, 1.0);
+    // Trazos AR en verde fósforo, acorde al filtro.
+    gl_FragColor = vec4(applyInk(col, vec3(0.10, 0.78, 0.22)), 1.0);
   }
 `;

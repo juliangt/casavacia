@@ -12,11 +12,14 @@
 <link rel="stylesheet" href="css/overlay.css">
 
 <!-- Import map: los módulos hacen `import ... from 'three'` y la versión
-     de la librería (CDN) se actualiza únicamente aquí. -->
+     de la librería (CDN) se actualiza únicamente aquí. MediaPipe tasks-vision
+     se importa de forma perezosa (solo al activar el modo AR); la versión
+     debe coincidir con CONFIG.ar.wasmUrl (js/config.js). -->
 <script type="importmap">
 {
   "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js"
+    "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js",
+    "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/vision_bundle.mjs"
   }
 }
 </script>
@@ -32,6 +35,21 @@
          disablepictureinpicture disableremoteplayback></video>
 
   <div id="fps" class="hidden" aria-hidden="true">-- fps</div>
+
+  <!-- Modo AR «dibujo en el aire»: chip de estado (carga / pista / error) -->
+  <div id="draw-status" class="hidden" aria-live="polite"></div>
+
+  <!-- Anillo que sigue la punta del índice; se muestra con la mano
+       detectada y se cierra al pellizcar. Posicionado por transform. -->
+  <div id="cursor" aria-hidden="true"></div>
+
+  <!-- Barra del modo AR: toggle de tracking + gestión de trazos.
+       Los botones se rellenan desde js/icons.js en js/main.js. -->
+  <nav id="drawbar" class="hidden" aria-label="Dibujo en el aire">
+    <button id="draw-toggle" aria-pressed="false"></button>
+    <button id="draw-undo" class="hidden"></button>
+    <button id="draw-clear" class="hidden"></button>
+  </nav>
 
   <div id="controls" class="hidden" aria-label="Opciones del filtro activo"></div>
 

@@ -1,7 +1,8 @@
 # Plan: AR «Dibujo en el aire» con tracking de mano (MediaPipe)
 
-> **Estado:** planificado, pendiente de implementar.
-> **Fecha del plan:** 2026-09-07.
+> **Estado:** implementado (checklist en la sección 6); la prueba funcional
+> completa con cámara real (sección 5.2) queda pendiente para dispositivo.
+> **Fecha del plan:** 2026-09-07. **Implementación:** 2026-09-08.
 > **Base:** app de filtros de dibujo en tiempo real (Three.js 0.185 por CDN, sin build
 > system, módulos ES estáticos). Filtros existentes: normal, sketch, blueprint, comic,
 > matrix y polygons, con panel de `controls` declarativo. Publicado en GitHub Pages.
@@ -190,21 +191,26 @@ real sin SLAM** (posible evolución futura).
 
 ## 6. Checklist de implementación
 
-- [ ] Comprobar última versión de `@mediapipe/tasks-vision` en jsdelivr y fijarla en el
-      import map (`index.html`)
-- [ ] Markup: `#drawbar`, `#cursor`, `#draw-status` (`index.html`)
-- [ ] `CONFIG.ar` (`js/config.js`)
-- [ ] `FRAG_PRELUDE`: uniforms `uStrokes`/`uInkStrength` + `applyInk()`
+- [x] Comprobar última versión de `@mediapipe/tasks-vision` en jsdelivr y fijarla en el
+      import map (`index.html`) — fijada la **1.0.1** (línea estable actual; la 0.10.x
+      que se contemplaba al escribir el plan ya no es la última)
+- [x] Markup: `#drawbar`, `#cursor`, `#draw-status` (`index.html`)
+- [x] `CONFIG.ar` (`js/config.js`)
+- [x] `FRAG_PRELUDE`: uniforms `uStrokes`/`uInkStrength` + `applyInk()`
       (`js/shaders/common.js`)
-- [ ] Línea `applyInk()` en los 6 filtros (`js/shaders/*.js`)
-- [ ] Uniforms compartidos + `setStrokes()` + `beforeRender` + dispose (`js/app.js`)
-- [ ] `js/ar/hand-tracker.js`
-- [ ] `js/ar/strokes.js`
-- [ ] `js/ar/air-draw.js`
-- [ ] Cableado UI + guard de `?demo` (`js/main.js`)
-- [ ] Iconos (`js/icons.js`) y estilos (`css/hud.css`)
-- [ ] README (`README.md`)
-- [ ] Verificación local completa (sección 5)
+- [x] Línea `applyInk()` en los 6 filtros (`js/shaders/*.js`)
+- [x] Uniforms compartidos + `setStrokes()` + `beforeRender` + dispose (`js/app.js`)
+- [x] `js/ar/hand-tracker.js`
+- [x] `js/ar/strokes.js`
+- [x] `js/ar/air-draw.js`
+- [x] Cableado UI + guard de `?demo` (`js/main.js`)
+- [x] Iconos (`js/icons.js`) y estilos (`css/hud.css`)
+- [x] README (`README.md`)
+- [x] Verificación local (sección 5): carga sin errores y renderizado de los 5
+      filtros en `?demo&debug`, regresión con `uInkStrength = 0` y disponibilidad de
+      bundle/WASM/modelo en CDN verificada. La parte 5.2 (flujo con cámara real:
+      activar → cursor → pellizcar → deshacer/limpiar) requiere dispositivo — el
+      navegador de pruebas no entrega stream de cámara.
 
 ## 7. Extensiones futuras posibles
 

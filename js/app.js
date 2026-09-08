@@ -2,7 +2,10 @@
  * MOTOR Three.js — renderer, escena, materiales por filtro y bucle de render.
  *
  * No conoce el DOM de la UI: para visualizar métricas por frame se puede
- * pasar `{ onFrame(t) }` en el constructor (lo usa main.js para el FPS).
+ * pasar `{ onFrame(t) }` en el constructor (lo usa main.js para el FPS), y
+ * `{ beforeRender(t) }` para trabajar justo antes de dibujar cada frame (lo
+ * usa el modo AR: el tracking debe ir antes del render para que trazo y
+ * cursor no vayan un frame retrasados).
  * ========================================================================== */
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
@@ -10,9 +13,10 @@ import { FILTERS, DEFAULT_FILTER } from './filters.js';
 import { VERTEX_SHADER, FRAG_PRELUDE } from './shaders/common.js';
 
 export class App {
-  constructor(canvas, { onFrame } = {}) {
+  constructor(canvas, { onFrame, beforeRender } = {}) {
     this.canvas = canvas;
     this.onFrame = onFrame;
+    this.beforeRender = beforeRender;
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: false,               // post-proceso fullscreen: no aporta
@@ -25,6 +29,11 @@ export class App {
     this.scene = new THREE.Scene();
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
+    // Placeholder 1×1 transparente para uStrokes: sin modo AR su alfa es 0
+    // en todas partes y ningún filtro muestrea una textura nula.
+    this._strokesPlaceholder = new THREE.DataTexture(new Uint8Array([255, 255, 255, 0]), 1, 1);
+    this._strokesPlaceholder.needsUpdate = true;
+
     // Uniforms compartidos: los materiales referencian los MISMOS objetos
     // { value } → una sola actualización sirve para todos los filtros.
     this.shared = {
@@ -33,6 +42,8 @@ export class App {
       uUvScale: { value: new THREE.Vector2(1, 1) },
       uTime:    { value: 0 },
       uResolution: { value: new THREE.Vector2(1, 1) },
+      uStrokes:     { value: this._strokesPlaceholder },
+      uInkStrength: { value: 0 },
     };
 
     this.materials = {};
@@ -70,6 +81,13 @@ export class App {
     this.mesh.material = this.materials[id];
   }
 
+  /** Enlaza la CanvasTexture de trazos del modo AR (u conmuta al placeholder
+   *  transparente si se pasa null) y activa/desactiva la composición. */
+  setStrokes(textureOrNull) {
+    this.shared.uStrokes.value = textureOrNull ?? this._strokesPlaceholder;
+    this.shared.uInkStrength.value = textureOrNull ? 1 : 0;
+  }
+
   /** Recorta el video tipo "cover": llena la pantalla sin deformar. */
   updateUvScale() {
     if (!this.source) return;
@@ -94,6 +112,7 @@ export class App {
     if (!this.shared.uTexture.value) return; // aún no hay cámara: no gastar GPU
     this.shared.uTime.value = t / 1000;
     this.source?.update?.(t);
+    this.beforeRender?.(t); // AR: tracker → lienzo antes de dibujar el frame
     this.renderer.render(this.scene, this.camera);
     this.onFrame?.(t);
   };
@@ -105,6 +124,12 @@ export class App {
     this.source?.dispose();
     this.source = null;
     this.shared.uTexture.value = null;
+    // Textura de trazos enlazada (si la hay) y placeholder del modo AR.
+    if (this.shared.uStrokes.value !== this._strokesPlaceholder) {
+      this.shared.uStrokes.value.dispose();
+    }
+    this.setStrokes(null);
+    this._strokesPlaceholder.dispose();
     this.mesh.geometry.dispose();
     for (const m of Object.values(this.materials)) m.dispose();
     this.renderer.dispose();

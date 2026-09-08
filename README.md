@@ -1,7 +1,9 @@
 # Filtros de dibujo en tiempo real (WebGL / Three.js)
 
 SPA 100 % client-side que captura la cámara trasera del móvil y procesa el
-video en GPU con shaders GLSL propios sobre Three.js.
+video en GPU con shaders GLSL propios sobre Three.js. Incluye un modo AR de
+**«dibujo en el aire»**: dibuja con la punta del índice sobre la imagen de la
+cámara, donde el gesto de **pellizcar** (pulgar + índice) baja y sube el lápiz.
 
 **Filtros incluidos:** Boceto a lápiz (Sobel + sombreado de grafito),
 Blueprint arquitectónico (cianotipo con rejilla), Cómic / cel-shading
@@ -40,6 +42,10 @@ js/
   sources/
     camera.js         CameraSource (getUserMedia + VideoTexture)
     demo.js           DemoSource (fuente sintética para ?demo)
+  ar/
+    air-draw.js       Controlador del modo «dibujo en el aire»
+    hand-tracker.js   MediaPipe HandLandmarker: suavizado EMA + pellizco
+    strokes.js        Lienzo 2D → CanvasTexture de trazos (undo/clear)
   ui/
     overlay.js        Overlay de arranque / error y mapa de errores
     filter-bar.js     Barra táctil de filtros (autogenerada desde el registro)
@@ -163,6 +169,53 @@ directamente en los uniforms, así que también se pueden ajustar por consola:
   (todo-o-nada por umbral de brillo): relleno sí/no (sin relleno quedan solo
   las aristas), color único o paleta de colores aleatorios que se
   intercambian entre polígonos, umbral y tamaño de celda.
+
+## Modo AR «dibujo en el aire»
+
+Con la cámara en marcha, la barra **Dibujar** (encima de la barra de filtros)
+activa el tracking de mano con **MediaPipe HandLandmarker** sobre el mismo
+`<video>` de la cámara (sin WebXR: funciona igual en iOS Safari y Android
+Chrome). Un anillo sigue la punta del índice; al **pellizcar** (pulgar +
+índice) el lápiz baja y dibuja trazos persistentes; al soltar, sube.
+**Deshacer** elimina el último trazo y **Limpiar** borra todo.
+
+- El trazo se compone **dentro del shader del filtro activo** (`applyInk()`
+  en el prelude común): grafito en Lápiz, tinta blanca en Blueprint, verde
+  fósforo en Matrix… Cambiar de filtro re-estiliza el dibujo al instante.
+- Los trazos viven en un lienzo 2D transparente (`js/ar/strokes.js`) subido
+  como `CanvasTexture` y muestreado por su canal alfa a través de los
+  uniforms compartidos `uStrokes` + `uInkStrength`. Con el modo apagado y sin
+  trazos, `uInkStrength = 0` y el render es idéntico al de antes.
+- El cursor y el trazo coinciden con el dedo porque el mapeo
+  landmark→pantalla (`air-draw.js`) replica en JS la matemática *cover* de
+  `coverUv()` que recorta el vídeo en el shader.
+- El toggle solo enciende/apaga el tracking: los trazos ya dibujados siguen
+  visibles (y componiéndose con el filtro) hasta Deshacer/Limpiar.
+
+### Rendimiento y carga
+
+- MediaPipe Tasks Vision se carga por CDN con `import()` perezoso al activar
+  el modo (fijado en el import map de `index.html`); el modelo (~7 MB) y el
+  WASM solo se descargan entonces — la carga inicial del sitio queda intacta.
+- El landmarker usa delegate **GPU con fallback CPU** y `numHands: 1`;
+  solo se ejecuta `detectForVideo()` cuando el vídeo avanzó de frame.
+
+### Parámetros (`CONFIG.ar` en `js/config.js`)
+
+| Clave | Qué controla |
+|---|---|
+| `smoothAlpha` | Suavizado EMA de la punta del índice (0 rígido · 1 sin suavizar). |
+| `pinchOn` / `pinchOff` | Histéresis del pellizco: distancia pulgar-índice normalizada por el tamaño de la mano (invariante a la profundidad). |
+| `strokeWidth` | Grosor del trazo como fracción del lado corto del viewport. |
+| `maxStrokeCanvas` | Tope de px del lienzo de trazos (lado largo). |
+| `breakJump` | Salto que corta el trazo (pérdida/reaparición de la mano). |
+| `wasmUrl` / `modelUrl` | CDNs de MediaPipe (la versión debe coincidir con el import map). |
+
+### Límite conocido (v1)
+
+Los trazos viven en **espacio de pantalla**: no hay anclaje al mundo real sin
+SLAM/estabilización por imagen (apuntado como evolución futura en
+`docs/plan-ar-dibujo-en-el-aire.md`).
 
 ## Añadir un filtro nuevo (arquitectura extensible)
 

@@ -118,6 +118,7 @@ export const FRAG_POLYGONS = /* glsl */`
       vec3 line = poly * mix(0.15, 1.0, on);
       col = mix(bg, line, edge);
     }
-    gl_FragColor = vec4(col, 1.0);
+    // Trazos AR con tinta oscura neutra.
+    gl_FragColor = vec4(applyInk(col, vec3(0.10, 0.10, 0.12)), 1.0);
   }
 `;

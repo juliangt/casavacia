@@ -38,7 +38,7 @@
 /* --- Panel de opciones del filtro activo --- */
 #controls {
   position: fixed; left: 50%; transform: translateX(-50%);
-  bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(150px + env(safe-area-inset-bottom, 0px)); /* deja sitio a #drawbar */
   display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 16px;
   max-width: calc(100vw - 16px);
   padding: 9px 14px;
@@ -82,6 +82,75 @@
 }
 #controls input[type="checkbox"]:checked { background: #f3f1ea; }
 #controls input[type="checkbox"]:checked::after { transform: translateX(13px); background: #17171b; }
+
+/* --- Barra del modo AR «dibujo en el aire» (misma estética que #filters,
+       situada justo encima de la barra de filtros) --- */
+#drawbar {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  display: flex; gap: 4px; padding: 5px;
+  background: rgba(18, 18, 22, .60);
+  -webkit-backdrop-filter: blur(16px) saturate(1.25);
+  backdrop-filter: blur(16px) saturate(1.25);
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 18px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+  z-index: 5;
+}
+#drawbar button {
+  appearance: none; border: 0; background: transparent; color: #cfcfd4;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  min-width: 66px; padding: 9px 10px 7px; border-radius: 13px;
+  font: 600 11px/1 inherit; letter-spacing: .01em;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background .15s ease, color .15s ease, transform .12s ease;
+}
+#drawbar button svg {
+  width: 21px; height: 21px;
+  stroke: currentColor; fill: none;
+  stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+}
+#drawbar button[aria-pressed="true"] { background: #f3f1ea; color: #17171b; }
+#drawbar button:active { transform: scale(.94); }
+#drawbar button.loading { opacity: .55; pointer-events: none; }
+#drawbar button.loading svg { animation: draw-pulse 1s ease-in-out infinite; }
+@keyframes draw-pulse { 50% { opacity: .35; } }
+
+/* --- Anillo cursor del dedo índice --- */
+#cursor {
+  position: fixed; left: 0; top: 0;
+  width: 44px; height: 44px; margin: -22px 0 0 -22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .85);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .30), 0 2px 10px rgba(0, 0, 0, .30);
+  pointer-events: none; z-index: 4;
+  opacity: 0; will-change: transform;
+  transition: width .12s ease, height .12s ease, margin .12s ease,
+              border-color .12s ease, opacity .15s ease;
+}
+#cursor::after { /* punto central: la punta exacta del índice */
+  content: ""; position: absolute; left: 50%; top: 50%;
+  width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%; background: rgba(255, 255, 255, .9);
+}
+#cursor.visible { opacity: 1; }
+#cursor.pinching { /* lápiz abajo: el anillo se cierra sobre el punto */
+  width: 26px; height: 26px; margin: -13px 0 0 -13px;
+  border-color: #ffd257;
+}
+
+/* --- Chip de estado del modo AR (mismo look que #fps) --- */
+#draw-status {
+  position: fixed; top: calc(10px + env(safe-area-inset-top, 0px)); left: 12px;
+  max-width: min(72vw, 340px);
+  padding: 5px 10px; border-radius: 9px;
+  font: 600 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: rgba(18, 18, 22, .60);
+  border: 1px solid rgba(255, 255, 255, .09);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  color: #cfcfd4; z-index: 5;
+}
 
 /* --- Chip de estado / FPS --- */
 #fps {

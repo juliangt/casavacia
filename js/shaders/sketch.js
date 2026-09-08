@@ -52,6 +52,6 @@ export const FRAG_SKETCH = /* glsl */`
     float ink = clamp(line + shade, 0.0, 1.0);
     ink *= 0.82 + 0.36 * grain;
 
-    gl_FragColor = vec4(mix(paper, mine, clamp(ink, 0.0, 1.0)), 1.0);
+    gl_FragColor = vec4(applyInk(mix(paper, mine, clamp(ink, 0.0, 1.0)), mine), 1.0);
   }
 `;
