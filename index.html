@@ -1,0 +1,821 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0a0a0c">
+<link rel="icon" href="data:,">
+<title>BocetoCam · Filtros de dibujo en tiempo real</title>
+
+<style>
+  /* ============================================================
+     Estilos — interfaz mínima flotante sobre el canvas WebGL
+     ============================================================ */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { height: 100%; }
+  body {
+    height: 100vh;
+    height: 100dvh;
+    background: #0a0a0c;
+    color: #ececee;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden;
+    overscroll-behavior: none;           /* evita pull-to-refresh */
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Canvas WebGL a pantalla completa */
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; background: #0a0a0c; }
+
+  /* El <video> debe permanecer en el DOM pero invisible:
+     iOS Safari puede pausar videos con display:none, así que se
+     encoje a 1px con opacidad 0. */
+  #cam {
+    position: fixed; top: 0; left: 0;
+    width: 1px; height: 1px; opacity: 0; pointer-events: none;
+  }
+
+  /* --- Barra de filtros (touch) --- */
+  #filters {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    display: flex; gap: 4px; padding: 5px;
+    max-width: calc(100vw - 16px); overflow-x: auto;
+    background: rgba(18, 18, 22, .60);
+    -webkit-backdrop-filter: blur(16px) saturate(1.25);
+    backdrop-filter: blur(16px) saturate(1.25);
+    border: 1px solid rgba(255, 255, 255, .09);
+    border-radius: 18px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+    z-index: 5; scrollbar-width: none;
+  }
+  #filters::-webkit-scrollbar { display: none; }
+  #filters button {
+    appearance: none; border: 0; background: transparent; color: #cfcfd4;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    min-width: 66px; padding: 9px 10px 7px; border-radius: 13px;
+    font: 600 11px/1 inherit; letter-spacing: .01em;
+    cursor: pointer;
+    touch-action: manipulation;                 /* sin retardo de 300ms ni doble-tap-zoom */
+    transition: background .15s ease, color .15s ease, transform .12s ease;
+  }
+  #filters button svg {
+    width: 21px; height: 21px;
+    stroke: currentColor; fill: none;
+    stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+  }
+  #filters button[aria-pressed="true"] { background: #f3f1ea; color: #17171b; }
+  #filters button:active { transform: scale(.94); }
+
+  /* --- Chip de estado / FPS --- */
+  #fps {
+    position: fixed; top: calc(10px + env(safe-area-inset-top, 0px)); right: 12px;
+    padding: 5px 10px; border-radius: 9px;
+    font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: rgba(18, 18, 22, .60);
+    border: 1px solid rgba(255, 255, 255, .09);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    color: #9fe8b1; z-index: 5; white-space: nowrap;
+  }
+
+  /* --- Overlay de arranque / error --- */
+  #overlay {
+    position: fixed; inset: 0; z-index: 10;
+    display: grid; place-items: center; padding: 28px; text-align: center;
+    background: radial-gradient(120% 120% at 50% 18%, #1d1f27 0%, #0a0a0c 72%);
+  }
+  #overlay .card {
+    max-width: 340px;
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+  }
+  #ov-icon {
+    width: 64px; height: 64px; border-radius: 20px;
+    display: grid; place-items: center;
+    background: linear-gradient(145deg, #f5f3ec, #d8d4c6); color: #2a2a30;
+  }
+  #ov-icon svg { width: 34px; height: 34px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  #ov-icon.err { background: linear-gradient(145deg, #f7d9d3, #e3a598); }
+  .spinner {
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, .18); border-top-color: #f3f1ea;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #ov-title { font-size: 21px; font-weight: 700; letter-spacing: -.01em; }
+  #ov-text  { font-size: 13.5px; line-height: 1.55; color: #a7a7b0; }
+  .hint { font-size: 11.5px; line-height: 1.5; color: #6c6c78; }
+  button.primary {
+    appearance: none; border: 0; cursor: pointer;
+    padding: 14px 26px; border-radius: 14px;
+    background: #f3f1ea; color: #17171b;
+    font: 700 15px/1 inherit;
+    touch-action: manipulation; transition: transform .12s ease;
+  }
+  button.primary:active { transform: scale(.97); }
+
+  .hidden { display: none !important; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+  <canvas id="gl" role="img" aria-label="Vista de cámara con filtros de dibujo"></canvas>
+
+  <!-- playsinline + muted + autoplay: imprescindible para reproducción
+       ininterrumpida en iOS Safari y Android Chrome -->
+  <video id="cam" playsinline webkit-playsinline muted autoplay
+         disablepictureinpicture disableremoteplayback></video>
+
+  <div id="fps" class="hidden" aria-hidden="true">-- fps</div>
+
+  <nav id="filters" class="hidden" aria-label="Selector de filtro"></nav>
+
+  <div id="overlay">
+    <div class="card">
+      <div id="ov-icon"></div>
+      <h1 id="ov-title">Cámara · Bocetos en vivo</h1>
+      <p id="ov-text">Convierte la cámara en papel de dibujo: lápiz, blueprint y cómic, procesados en tiempo real en tu GPU.</p>
+      <button class="primary" id="ov-btn">Iniciar cámara</button>
+      <p class="hint" id="ov-hint">Se pedirá permiso de cámara.<br>Requiere HTTPS (o http://localhost).</p>
+    </div>
+  </div>
+
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js';
+
+/* ============================================================================
+ * 1. CONFIGURACIÓN
+ * ========================================================================== */
+const CONFIG = Object.freeze({
+  video: {
+    facingMode: 'environment', // cámara trasera (ideal → no falla si no existe)
+    width: 1280,               // 720p recomendado; subir a 1920 para 1080p
+    height: 720,
+    requestTimeoutMs: 10000,   // margen por si el dispositivo tarda en dar metadatos
+  },
+  maxPixelRatio: 2.0, // tope de devicePixelRatio (evita recalentamiento / jank)
+});
+
+const PARAMS = new URLSearchParams(location.search);
+const DEBUG = PARAMS.has('debug'); // ?debug → muestra FPS
+const DEMO  = PARAMS.has('demo');  // ?demo  → fuente sintética, sin cámara
+
+/* ============================================================================
+ * 2. SHADERS GLSL
+ * ========================================================================== */
+
+// Vertex común: el quad PlaneGeometry(2,2) cubre exactamente el NDC (-1..1),
+// por lo que con la cámara ortográfica ocupa toda la pantalla sin transformaciones.
+const VERTEX_SHADER = /* glsl */`
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+// Prelude compartido por todos los filtros (uniforms comunes + helpers GLSL).
+const FRAG_PRELUDE = /* glsl */`
+  // --------------------------------------------------------------------------
+  // Uniforms comunes
+  //   uTexture : textura de video (THREE.VideoTexture)
+  //   uTexel   : tamaño de un texel en coordenadas UV (1/ancho, 1/alto)
+  //   uUvScale : corrección de aspecto tipo "cover" (ver coverUv)
+  // --------------------------------------------------------------------------
+  uniform sampler2D uTexture;
+  uniform vec2  uTexel;
+  uniform vec2  uUvScale;
+  uniform float uTime;
+  varying vec2 vUv;
+
+  // Re-mapea el UV del quad recortando el exceso de video (modo "cover"):
+  // la imagen llena la pantalla SIN deformarse, recortando el lado sobrante
+  // cuando el aspecto del video difiere del del canvas (móvil vertical, etc.).
+  vec2 coverUv(vec2 uv) {
+    return (uv - 0.5) * uUvScale + 0.5;
+  }
+
+  // Luminancia BT.601 — suficiente para procesamiento artístico.
+  // (OJO: no llamar "luminance" a esta función: colisiona con un símbolo del
+  // prefijo GLSL que inyecta Three.js/ANGLE y el programa falla al enlazar.)
+  float luma(vec3 c) {
+    return dot(c, vec3(0.299, 0.587, 0.114));
+  }
+
+  float sampleLum(vec2 uv) {
+    return luma(texture2D(uTexture, uv).rgb);
+  }
+
+  // --------------------------------------------------------------------------
+  // Detección de bordes: operador de Sobel 3x3 sobre la luminancia.
+  //   thickness : multiplica el paso de muestreo (uTexel).
+  //               > 1.0 → líneas más GROSORAS y menos ruido de alta frecuencia.
+  //               < 1.0 → líneas finas pero sensibles al ruido del sensor.
+  // Devuelve la magnitud del gradiente: ~0 en zonas planas, hasta ~4.0 en
+  // bordes duros (transición negro↔blanco).
+  // --------------------------------------------------------------------------
+  float sobel(vec2 uv, float thickness) {
+    vec2 o = uTexel * thickness;
+    float tl = sampleLum(uv + vec2(-o.x,  o.y));
+    float tc = sampleLum(uv + vec2( 0.0,  o.y));
+    float tr = sampleLum(uv + vec2( o.x,  o.y));
+    float ml = sampleLum(uv + vec2(-o.x,  0.0));
+    float mr = sampleLum(uv + vec2( o.x,  0.0));
+    float bl = sampleLum(uv + vec2(-o.x, -o.y));
+    float bc = sampleLum(uv + vec2( 0.0, -o.y));
+    float br = sampleLum(uv + vec2( o.x, -o.y));
+    float gx = (tr + 2.0 * mr + br) - (tl + 2.0 * ml + bl);
+    float gy = (tl + 2.0 * tc + tr) - (bl + 2.0 * bc + br);
+    return length(vec2(gx, gy));
+  }
+
+  // Ruido blanco determinista barato (grano de papel / grafito).
+  float hash21(vec2 p) {
+    p = fract(p * vec2(443.897, 441.423));
+    p += dot(p, p.yx + 19.19);
+    return fract((p.x + p.y) * p.x);
+  }
+`;
+
+/* ----------------------------------------------------------------------------
+ * FILTRO: Boceto a lápiz (filtro principal)
+ * Estrategia:
+ *   1. Contornos  → Sobel + umbral suavizado = trazos oscuros.
+ *   2. Sombreado  → luminancia invertida con smoothstep = capas de grafito
+ *                   en las zonas oscuras de la escena.
+ *   3. Papel      → blanco cálido con grano procedural; el grano también
+ *                   "rompe" el trazo para emular el diente del papel.
+ *
+ * Parámetros ajustables (valores por defecto en FILTERS.sketch.uniforms):
+ *   uEdgeThreshold : UMBRAL DE BORDES. Gradientes menores no se dibujan.
+ *                    0.05 = hiperlápiz (líneas por todas partes) ···· 0.35 =
+ *                    solo contornos fuertes. Rango útil: 0.05 – 0.35.
+ *   uEdgeSoftness  : anchura de la transición del umbral (antialias del trazo).
+ *                    0 = línea dura tipo tinta; 0.4+ = trazo con presión
+ *                    variable, más orgánico.
+ *   uThickness     : GROSOR DE LÍNEA (multiplicador de texel).
+ *                    1.0 = 1px del video; 1.5–2.5 = trazo grueso suelto.
+ *   uLineStrength  : CONTRASTE / opacidad del trazo. 0 = sin líneas, 1 = negro
+ *                    máximo.
+ *   uShading       : intensidad del sombreado de grafito en sombras.
+ *                    0 = solo contorno (estilo "line art"); 1 = manchas muy
+ *                    cargadas.
+ * -------------------------------------------------------------------------- */
+const FRAG_SKETCH = /* glsl */`
+  uniform float uEdgeThreshold;
+  uniform float uEdgeSoftness;
+  uniform float uThickness;
+  uniform float uLineStrength;
+  uniform float uShading;
+
+  void main() {
+    vec2 uv = coverUv(vUv);
+
+    // --- 1) Contornos -------------------------------------------------------
+    float g = sobel(uv, uThickness);
+    float line = smoothstep(uEdgeThreshold, uEdgeThreshold + uEdgeSoftness, g);
+    line *= uLineStrength;
+
+    // --- 2) Sombreado de grafito -------------------------------------------
+    // smoothstep(0.18, 0.87, lum): 0 en luces → 1 en sombras profundas.
+    float lum   = sampleLum(uv);
+    float shade = (1.0 - smoothstep(0.18, 0.87, lum)) * uShading;
+
+    // --- 3) Papel y mina de grafito ----------------------------------------
+    vec2  px    = uv / uTexel;                       // coordenada en píxeles de video
+    float grain = mix(hash21(px), hash21(px + 37.7), 0.5);
+    vec3  paper = vec3(0.965, 0.955, 0.925) - (grain - 0.5) * 0.055;
+    vec3  mine  = vec3(0.16, 0.17, 0.19);            // grafito gris-azulado
+
+    // El grano modula la densidad de la tinta (diente del papel).
+    float ink = clamp(line + shade, 0.0, 1.0);
+    ink *= 0.82 + 0.36 * grain;
+
+    gl_FragColor = vec4(mix(paper, mine, clamp(ink, 0.0, 1.0)), 1.0);
+  }
+`;
+
+/* ----------------------------------------------------------------------------
+ * FILTRO: Blueprint arquitectónico (cianotipo)
+ * Líneas blancas sobre papel azul + rejilla técnica tenue + relleno difuso
+ * modulado por la luminancia de la escena.
+ * Parámetros: mismo significado que en el filtro Lápiz.
+ * -------------------------------------------------------------------------- */
+const FRAG_BLUEPRINT = /* glsl */`
+  uniform float uEdgeThreshold;
+  uniform float uEdgeSoftness;
+  uniform float uThickness;
+  uniform float uLineStrength;
+
+  void main() {
+    vec2 uv = coverUv(vUv);
+
+    float g = sobel(uv, uThickness);
+    float line = pow(smoothstep(uEdgeThreshold, uEdgeThreshold + uEdgeSoftness, g), 1.15);
+    line *= uLineStrength;
+
+    // Relleno difuso: la escena se "adivina" en azules más claros.
+    float lum = sampleLum(uv);
+
+    // Rejilla técnica en espacio de píxeles del video (celdas de 48 texels).
+    vec2  cell = abs(fract(uv / uTexel / 48.0) - 0.5);
+    float grid = (1.0 - smoothstep(0.0, 0.045, min(cell.x, cell.y))) * 0.10;
+
+    vec3 bg  = mix(vec3(0.043, 0.145, 0.345), vec3(0.10, 0.24, 0.48), lum * 0.55);
+    vec3 ink = vec3(0.92, 0.97, 1.0);
+
+    vec3 col = bg + grid * (0.6 + 0.4 * lum);
+    gl_FragColor = vec4(mix(col, ink, line), 1.0);
+  }
+`;
+
+/* ----------------------------------------------------------------------------
+ * FILTRO: Cómic / cel-shading
+ * Posteriza la luminancia en bandas planas (preservando el color) y añade un
+ * contorno de tinta negro.
+ *   uBands      : nº de niveles de sombreado (3 = muy plano, 8 = suave).
+ *   uSaturation : color original conservado (0 = B/N, 1 = todo el color).
+ * -------------------------------------------------------------------------- */
+const FRAG_COMIC = /* glsl */`
+  uniform float uEdgeThreshold;
+  uniform float uEdgeSoftness;
+  uniform float uThickness;
+  uniform float uLineStrength;
+  uniform float uBands;
+  uniform float uSaturation;
+
+  void main() {
+    vec2 uv = coverUv(vUv);
+    vec3 c  = texture2D(uTexture, uv).rgb;
+
+    // --- Bandas planas (cel shading) ----------------------------------------
+    float lum = luma(c);
+    float q   = floor(lum * uBands + 0.5) / uBands;
+    // Reconstruye el color con la luminancia cuantizada preservando el tono.
+    vec3 toon = clamp(c * (q / max(lum, 1e-4)), 0.0, 1.0);
+    toon = mix(vec3(q * 0.9 + 0.05), toon, uSaturation);
+
+    // --- Contorno de tinta ---------------------------------------------------
+    float g = sobel(uv, uThickness);
+    float line = smoothstep(uEdgeThreshold, uEdgeThreshold + uEdgeSoftness, g) * uLineStrength;
+
+    gl_FragColor = vec4(mix(toon, vec3(0.06, 0.06, 0.08), line), 1.0);
+  }
+`;
+
+/* ----------------------------------------------------------------------------
+ * FILTRO: Vista normal (sin procesar) — solo corrección de aspecto.
+ * -------------------------------------------------------------------------- */
+const FRAG_NORMAL = /* glsl */`
+  void main() {
+    gl_FragColor = vec4(texture2D(uTexture, coverUv(vUv)).rgb, 1.0);
+  }
+`;
+
+/* ============================================================================
+ * 3. REGISTRO DE FILTROS (arquitectura extensible)
+ *    Para añadir un filtro nuevo basta añadir una entrada aquí: id, etiqueta,
+ *    icono, uniforms propios y el fragment shader (main). El prelude común
+ *    (uniforms de video, coverUv, sobel, hash21...) ya está disponible.
+ * ========================================================================== */
+const ICONS = {
+  normal: '<svg viewBox="0 0 24 24"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.7"/></svg>',
+  sketch: '<svg viewBox="0 0 24 24"><path d="M4.5 19.5l1-4L16.9 4.1a2.05 2.05 0 0 1 2.9 2.9L8.5 18.5l-4 1Z"/><path d="M14.8 6.2l2.9 2.9"/></svg>',
+  blueprint: '<svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="2"/><path d="M3.5 9.25h17M3.5 14.75h17M9.25 3.5v17M14.75 3.5v17"/></svg>',
+  comic: '<svg viewBox="0 0 24 24"><path d="M4 5.5h16a.9.9 0 0 1 .9.9v8.2a.9.9 0 0 1-.9.9h-8.6L7.5 19v-3.5H4a.9.9 0 0 1-.9-.9V6.4a.9.9 0 0 1 .9-.9Z"/><circle cx="8.8" cy="10.4" r=".75" fill="currentColor" stroke="none"/><circle cx="12" cy="10.4" r=".75" fill="currentColor" stroke="none"/><circle cx="15.2" cy="10.4" r=".75" fill="currentColor" stroke="none"/></svg>',
+};
+
+const FILTERS = {
+  normal: {
+    label: 'Sin filtro',
+    icon: ICONS.normal,
+    fragment: FRAG_NORMAL,
+    uniforms: {},
+  },
+  sketch: {
+    label: 'Lápiz',
+    icon: ICONS.sketch,
+    fragment: FRAG_SKETCH,
+    uniforms: {
+      uEdgeThreshold: { value: 0.18 }, // umbral de bordes (0.05–0.35)
+      uEdgeSoftness:  { value: 0.55 }, // suavizado del umbral
+      uThickness:     { value: 1.5 },  // grosor de línea (× texel)
+      uLineStrength:  { value: 1.0 },  // contraste del trazo
+      uShading:       { value: 0.55 }, // intensidad del sombreado
+    },
+  },
+  blueprint: {
+    label: 'Blueprint',
+    icon: ICONS.blueprint,
+    fragment: FRAG_BLUEPRINT,
+    uniforms: {
+      uEdgeThreshold: { value: 0.22 },
+      uEdgeSoftness:  { value: 0.45 },
+      uThickness:     { value: 1.3 },
+      uLineStrength:  { value: 1.0 },
+    },
+  },
+  comic: {
+    label: 'Cómic',
+    icon: ICONS.comic,
+    fragment: FRAG_COMIC,
+    uniforms: {
+      uEdgeThreshold: { value: 0.28 },
+      uEdgeSoftness:  { value: 0.40 },
+      uThickness:     { value: 1.2 },
+      uLineStrength:  { value: 1.0 },
+      uBands:         { value: 5.0 },  // niveles de cel-shading
+      uSaturation:    { value: 0.85 }, // color conservado
+    },
+  },
+};
+
+const DEFAULT_FILTER = 'sketch';
+
+/* ============================================================================
+ * 4. FUENTES DE VIDEO
+ *    Interfaz común: { start(), update(t), dispose(), width, height, texture }
+ * ========================================================================== */
+const once = (el, ev) => new Promise(res => el.addEventListener(ev, res, { once: true }));
+
+class CameraSource {
+  constructor(videoEl, onEnded) {
+    this.video = videoEl;
+    this.onEnded = onEnded;
+    this.stream = null;
+    this.texture = null;
+    this.width = 0;
+    this.height = 0;
+  }
+
+  async start() {
+    if (!window.isSecureContext) {
+      const e = new Error('getUserMedia requiere un contexto seguro (https:// o localhost).');
+      e.name = 'InsecureContext';
+      throw e;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      const e = new Error('Este navegador no soporta getUserMedia.');
+      e.name = 'NotSupportedError';
+      throw e;
+    }
+
+    // facingMode "ideal" → pide la trasera pero no falla si solo hay frontal.
+    this.stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: { ideal: CONFIG.video.facingMode },
+        width:  { ideal: CONFIG.video.width  },
+        height: { ideal: CONFIG.video.height },
+      },
+    });
+
+    const v = this.video;
+    v.muted = true;            // refuerzo del atributo HTML (autoplay policies)
+    v.playsInline = true;
+    v.srcObject = this.stream;
+
+    // Esperar metadatos (dimensiones reales del stream), con margen de error.
+    await Promise.race([
+      once(v, 'loadedmetadata'),
+      new Promise((_, rej) => setTimeout(() => {
+        const e = new Error('La cámara tardó demasiado en responder.');
+        e.name = 'TimeoutError';
+        rej(e);
+      }, CONFIG.video.requestTimeoutMs)),
+    ]);
+
+    // muted + playsinline ⇒ puede arrancar sin gesto de usuario.
+    await v.play().catch(() => {});
+
+    // Algunos Android reportan 0x0 en loadedmetadata: esperar al primer frame.
+    if (!v.videoWidth) {
+      await Promise.race([once(v, 'resize'), new Promise(r => setTimeout(r, 2000))]);
+    }
+    this.width  = v.videoWidth  || CONFIG.video.width;
+    this.height = v.videoHeight || CONFIG.video.height;
+
+    // Aviso si la cámara se corta a mitad de sesión (app en 2º plano, HW, etc.)
+    const track = this.stream.getVideoTracks()[0];
+    track?.addEventListener('ended', () => this.onEnded?.());
+
+    // Textura NPOT → sin mipmaps y filtrado lineal (requerido en móvil).
+    const tex = new THREE.VideoTexture(v);
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.generateMipmaps = false;
+    this.texture = tex;
+  }
+
+  update() { /* VideoTexture se auto-actualiza desde el renderer */ }
+
+  dispose() {
+    this.stream?.getTracks().forEach(t => t.stop()); // libera el LED/hardware
+    this.stream = null;
+    this.video.pause();
+    this.video.srcObject = null;
+    this.texture?.dispose();
+    this.texture = null;
+  }
+}
+
+/** Fuente sintética (solo desarrollo, ?demo): permite iterar shaders sin cámara. */
+class DemoSource {
+  constructor() {
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = 1280;
+    this.canvas.height = 720;
+    this.ctx = this.canvas.getContext('2d');
+    this.width = this.canvas.width;
+    this.height = this.canvas.height;
+    this.texture = new THREE.CanvasTexture(this.canvas);
+    this.texture.minFilter = THREE.LinearFilter;
+    this.texture.magFilter = THREE.LinearFilter;
+    this.texture.generateMipmaps = false;
+  }
+
+  update(tms) {
+    const t = tms / 1000, c = this.canvas, ctx = this.ctx;
+    const W = c.width, H = c.height;
+
+    // Fondo con gradiente vertical (zonas de luz/sombra para el lápiz).
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#f4f3ef');
+    bg.addColorStop(1, '#b9bab4');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // Rampa de luminancia (prueba de sombreado por bandas).
+    const ramp = ctx.createLinearGradient(24, 0, 344, 0);
+    for (let i = 0; i <= 10; i++) ramp.addColorStop(i / 10, `hsl(0,0%,${100 - i * 10}%)`);
+    ctx.fillStyle = ramp;
+    ctx.fillRect(24, 24, 320, 56);
+
+    // Círculos de colores en órbita (prueba de cel-shading).
+    ['#c0392b', '#27ae60', '#2980b9', '#e67e22'].forEach((col, i) => {
+      const x = W / 2 + Math.cos(t * (0.4 + i * 0.13) + i * 1.7) * (W * 0.30);
+      const y = H / 2 + Math.sin(t * (0.5 + i * 0.11) + i * 2.3) * (H * 0.30);
+      ctx.beginPath();
+      ctx.arc(x, y, 64 + i * 15, 0, Math.PI * 2);
+      ctx.fillStyle = col;
+      ctx.fill();
+    });
+
+    // Rectángulo oscuro rotatorio (bordes fuertes para Sobel).
+    ctx.save();
+    ctx.translate(W / 2 + Math.sin(t * 0.3) * 200, H / 2 + Math.cos(t * 0.22) * 140);
+    ctx.rotate(t * 0.6);
+    ctx.fillStyle = '#22242a';
+    ctx.fillRect(-130, -70, 260, 140);
+    ctx.restore();
+
+    this.texture.needsUpdate = true;
+  }
+
+  dispose() { this.texture.dispose(); }
+}
+
+/* ============================================================================
+ * 5. MOTOR Three.js
+ * ========================================================================== */
+class App {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: false,               // post-proceso fullscreen: no aporta
+      alpha: false,
+      powerPreference: 'high-performance',
+    });
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, CONFIG.maxPixelRatio));
+
+    // Cámara ortográfica + quad de pantalla completa (NDC -1..1).
+    this.scene = new THREE.Scene();
+    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+    // Uniforms compartidos: los materiales referencian los MISMOS objetos
+    // { value } → una sola actualización sirve para todos los filtros.
+    this.shared = {
+      uTexture: { value: null },
+      uTexel:   { value: new THREE.Vector2(1, 1) },
+      uUvScale: { value: new THREE.Vector2(1, 1) },
+      uTime:    { value: 0 },
+    };
+
+    this.materials = {};
+    for (const [id, f] of Object.entries(FILTERS)) {
+      this.materials[id] = new THREE.ShaderMaterial({
+        uniforms: { ...this.shared, ...f.uniforms }, // refs compartidas + propios
+        vertexShader: VERTEX_SHADER,
+        fragmentShader: FRAG_PRELUDE + f.fragment,
+      });
+    }
+
+    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.materials[DEFAULT_FILTER]);
+    this.scene.add(this.mesh);
+
+    this.source = null;
+    this._fpsT = performance.now();
+    this._frames = 0;
+    this._onResize = () => this.resize();
+  }
+
+  start() {
+    addEventListener('resize', this._onResize);
+    this.resize();
+    this.renderer.setAnimationLoop(this._tick);
+  }
+
+  setSource(source) {
+    this.source = source;
+    this.shared.uTexture.value = source?.texture ?? null;
+    if (source) {
+      this.shared.uTexel.value.set(1 / source.width, 1 / source.height);
+      this.updateUvScale();
+    }
+  }
+
+  setFilter(id) {
+    this.mesh.material = this.materials[id];
+  }
+
+  /** Recorta el video tipo "cover": llena la pantalla sin deformar. */
+  updateUvScale() {
+    if (!this.source) return;
+    const va = this.source.width / this.source.height;      // aspecto del video
+    const ca = this.canvas.width / this.canvas.height;      // aspecto del canvas
+    this.shared.uUvScale.value.set(
+      Math.min(1, ca / va),   // video más ancho que el canvas → recorta laterales
+      Math.min(1, va / ca),   // video más alto  que el canvas → recorta arriba/abajo
+    );
+  }
+
+  resize() {
+    // tope de DPR aplicado también al girar el móvil / mover la ventana
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, CONFIG.maxPixelRatio));
+    this.renderer.setSize(innerWidth, innerHeight, false); // false: CSS ya es 100%
+    this.updateUvScale();
+  }
+
+  _tick = (t) => {
+    if (!this.shared.uTexture.value) return; // aún no hay cámara: no gastar GPU
+    this.shared.uTime.value = t / 1000;
+    this.source?.update?.(t);
+    this.renderer.render(this.scene, this.camera);
+
+    if (DEBUG) {
+      this._frames++;
+      if (t - this._fpsT >= 500) {
+        fpsEl.textContent = `${Math.round(this._frames * 1000 / (t - this._fpsT))} fps`;
+        this._fpsT = t;
+        this._frames = 0;
+      }
+    }
+  };
+
+  /** Liberación completa de recursos (reinicios / descarte de la página). */
+  dispose() {
+    this.renderer.setAnimationLoop(null);
+    removeEventListener('resize', this._onResize);
+    this.source?.dispose();
+    this.source = null;
+    this.shared.uTexture.value = null;
+    this.mesh.geometry.dispose();
+    for (const m of Object.values(this.materials)) m.dispose();
+    this.renderer.dispose();
+  }
+}
+
+/* ============================================================================
+ * 6. UI + ARRANQUE
+ * ========================================================================== */
+const $ = id => document.getElementById(id);
+const fpsEl = $('fps');
+const overlayEl = $('overlay'), ovIcon = $('ov-icon'), ovTitle = $('ov-title'),
+      ovText = $('ov-text'), ovBtn = $('ov-btn'), ovHint = $('ov-hint');
+const filtersEl = $('filters');
+const videoEl = $('cam');
+
+const ICON_CAMERA = '<svg viewBox="0 0 24 24"><path d="M4 7.5h3l1.6-2.5h6.8L17 7.5h3a1 1 0 0 1 1 1V18a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8.5a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="3.6"/></svg>';
+const ICON_ALERT  = '<svg viewBox="0 0 24 24"><path d="M12 3.6 22 20H2L12 3.6Z"/><path d="M12 9.6v4.6"/><circle cx="12" cy="17" r=".8" fill="currentColor" stroke="none"/></svg>';
+
+const app = new App($('gl'));
+
+function setOverlay({ icon, title, text, btn, hint, err = false }) {
+  ovIcon.innerHTML = icon;
+  ovIcon.classList.toggle('err', err);
+  ovTitle.textContent = title;
+  ovText.textContent = text;
+  ovHint.classList.toggle('hidden', !hint);
+  ovBtn.classList.toggle('hidden', !btn);
+  if (btn) ovBtn.textContent = btn;
+  overlayEl.classList.remove('hidden');
+}
+
+function describeCameraError(err) {
+  switch (err?.name) {
+    case 'NotAllowedError':
+    case 'SecurityError':
+      return ['Permiso denegado', 'Concede acceso a la cámara desde el icono de la barra de direcciones y pulsa Reintentar.'];
+    case 'NotFoundError':
+    case 'OverconstrainedError':
+      return ['Cámara no disponible', 'No se encontró ninguna cámara compatible en este dispositivo.'];
+    case 'NotReadableError':
+    case 'AbortError':
+      return ['Cámara ocupada', 'Otra aplicación está usando la cámara. Ciérrala e inténtalo de nuevo.'];
+    case 'InsecureContext':
+      return ['Se necesita HTTPS', 'La cámara solo está disponible en contextos seguros: sirve la página por https:// o ábrela en http://localhost.'];
+    case 'TrackEnded':
+      return ['La cámara se detuvo', 'El flujo de video terminó inesperadamente. Puedes reiniciarlo.'];
+    case 'TimeoutError':
+      return ['Sin respuesta de la cámara', 'El dispositivo tardó demasiado en entregar video.'];
+    default:
+      return ['No se pudo iniciar', err?.message || 'Error desconocido al acceder a la cámara.'];
+  }
+}
+
+function showError(err) {
+  const [title, text] = describeCameraError(err);
+  setOverlay({ icon: ICON_ALERT, title, text, btn: 'Reintentar', err: true });
+}
+
+function buildFilterBar() {
+  for (const [id, f] of Object.entries(FILTERS)) {
+    const b = document.createElement('button');
+    b.innerHTML = f.icon + `<span>${f.label}</span>`;
+    b.setAttribute('aria-pressed', String(id === DEFAULT_FILTER));
+    b.addEventListener('click', () => {
+      app.setFilter(id);
+      for (const btn of filtersEl.children) btn.setAttribute('aria-pressed', 'false');
+      b.setAttribute('aria-pressed', 'true');
+      navigator.vibrate?.(8); // feedback táctil (Android)
+    });
+    filtersEl.appendChild(b);
+  }
+}
+
+async function startCameraFlow() {
+  setOverlay({
+    icon: '<div class="spinner" role="status"></div>',
+    title: 'Solicitando cámara…',
+    text: 'Si el navegador pide permiso, elige «Permitir».',
+  });
+  try {
+    const source = new CameraSource(videoEl, () => showError({ name: 'TrackEnded' }));
+    await source.start();
+    app.setSource(source);
+    overlayEl.classList.add('hidden');
+    filtersEl.classList.remove('hidden');
+  } catch (err) {
+    // Asegura que no queden tracks/streams abiertos tras un fallo parcial.
+    videoEl.srcObject?.getTracks().forEach(t => t.stop());
+    videoEl.srcObject = null;
+    showError(err);
+  }
+}
+
+async function restartCameraFlow() {
+  app.source?.dispose();      // libera stream + textura antes de reintentar
+  app.setSource(null);
+  await startCameraFlow();
+}
+
+ovBtn.addEventListener('click', () => (app.source ? restartCameraFlow() : startCameraFlow()));
+
+// Pérdida de contexto WebGL (móvil con memoria justa): avisar en vez de congelar.
+$('gl').addEventListener('webglcontextlost', e => {
+  e.preventDefault();
+  showError({ name: 'WebGLLost', message: 'Se perdió el contexto gráfico. Recarga la página.' });
+});
+
+// Al ocultar la página se libera la cámara (LED apagado, privacidad, batería).
+addEventListener('pagehide', () => app.source?.dispose(), { once: true });
+
+/* --- Arranque ------------------------------------------------------------- */
+buildFilterBar();
+app.start();
+
+// Handle de depuración: permite ajustar uniforms en caliente desde la consola,
+// p. ej. __app.materials.sketch.uniforms.uThickness.value = 2.0
+window.__app = app;
+window.__THREE = THREE;
+
+if (DEBUG || DEMO) {
+  fpsEl.textContent = DEMO ? 'DEMO' : '-- fps';
+  fpsEl.classList.remove('hidden');
+}
+
+if (DEMO) {
+  const demo = new DemoSource();
+  app.setSource(demo);
+  overlayEl.classList.add('hidden');
+  filtersEl.classList.remove('hidden');
+}
+</script>
+</body>
+</html>

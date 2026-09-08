@@ -1,0 +1,10 @@
+# macOS
+.DS_Store
+
+# Certificados locales generados por mkcert (ver README, sección HTTPS)
+*.pem
+*-key.pem
+
+# Por si el proyecto migra a Vite
+node_modules/
+dist/
