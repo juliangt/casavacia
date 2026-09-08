@@ -1,4 +1,4 @@
-# BocetoCam — Filtros de dibujo en tiempo real (WebGL / Three.js)
+# Filtros de dibujo en tiempo real (WebGL / Three.js)
 
 SPA 100 % client-side que captura la cámara trasera del móvil y procesa el
 video en GPU con shaders GLSL propios sobre Three.js.
