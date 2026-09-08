@@ -5,7 +5,9 @@ video en GPU con shaders GLSL propios sobre Three.js.
 
 **Filtros incluidos:** Boceto a lápiz (Sobel + sombreado de grafito),
 Blueprint arquitectónico (cianotipo con rejilla), Cómic / cel-shading
-(posterizado + tinta) y vista normal sin procesar.
+(posterizado + tinta), Matrix (lluvia de katakana alimentada por la cámara)
+y vista normal. *(El filtro Polígonos existe en el código pero está oculto
+de la barra temporalmente: ver el comentario en `js/filters.js`.)*
 
 ---
 
@@ -19,7 +21,7 @@ declarado en `index.html` (único sitio donde se fija la versión):
 index.html            Solo marcado + import map + carga de js/main.js
 css/
   base.css            Reset, documento, canvas WebGL y <video> oculto
-  hud.css             Barra de filtros y chip de FPS
+  hud.css             Barra de filtros, panel de opciones y chip de FPS
   overlay.css         Overlay de arranque / error (spinner, botón primario)
 js/
   main.js             Punto de entrada: flujos de cámara, reintento y arranque
@@ -33,12 +35,15 @@ js/
     sketch.js         Filtro: boceto a lápiz
     blueprint.js      Filtro: blueprint / cianotipo
     comic.js          Filtro: cómic / cel-shading
+    matrix.js         Filtro: matrix (lluvia de glifos + atlas de canvas 2D)
+    polygons.js       Filtro: polígonos (malla jittereada de triángulos planos)
   sources/
     camera.js         CameraSource (getUserMedia + VideoTexture)
     demo.js           DemoSource (fuente sintética para ?demo)
   ui/
     overlay.js        Overlay de arranque / error y mapa de errores
     filter-bar.js     Barra táctil de filtros (autogenerada desde el registro)
+    controls.js       Panel de opciones por filtro (campo `controls` del registro)
     fps.js            Contador de FPS (modo ?debug)
 ```
 
@@ -144,15 +149,33 @@ __app.materials.sketch.uniforms.uEdgeThreshold.value = 0.10; // umbral
 El filtro Cómic añade `uBands` (nº de niveles, 3–8) y `uSaturation` (0 = B/N,
 1 = color completo). Blueprint comparte los cuatro primeros.
 
+### Filtros con panel de opciones: Matrix y Polígonos
+
+Matrix y Polígonos exponen sus parámetros en un **panel de opciones** que
+aparece sobre la barra de filtros al activarlos (toggles, sliders y color
+picker). El panel se declara en el propio registro (`controls`) y escribe
+directamente en los uniforms, así que también se pueden ajustar por consola:
+
+- **Matrix** — densidad de la rejilla, velocidad de caída, largo de estela y
+  cuánto se ve la imagen real debajo de la lluvia. La luminancia de la cámara
+  alimenta el brillo de los glifos.
+- **Polígonos** — malla irregular de triángulos planos en modo silueta
+  (todo-o-nada por umbral de brillo): relleno sí/no (sin relleno quedan solo
+  las aristas), color único o paleta de colores aleatorios que se
+  intercambian entre polígonos, umbral y tamaño de celda.
+
 ## Añadir un filtro nuevo (arquitectura extensible)
 
 1. Crea `js/shaders/sepia.js` exportando su `main()` en GLSL, reutilizando el
    prelude (`sobel()`, `coverUv()`, `luma()`, `hash21()` y los uniforms
-   `uTexture/uTexel/uUvScale/uTime`).
+   `uTexture/uTexel/uUvScale/uTime/uResolution`).
 2. Añade una entrada al registro `FILTERS` (`js/filters.js`) con `label`,
    `icon` (SVG inline, en `js/icons.js`), `fragment` y sus `uniforms` propios.
-3. Nada más: la barra táctil, los materiales y la liberación de recursos se
-   generan automáticamente desde el registro.
+   Opcionalmente añade `controls` para que el filtro tenga panel de opciones
+   (`js/ui/controls.js`): `[{ key, kind: 'range'|'toggle'|'color', label,
+   min, max, step }]`.
+3. Nada más: la barra táctil, el panel de opciones, los materiales y la
+   liberación de recursos se generan automáticamente desde el registro.
 
 ```js
 // js/filters.js

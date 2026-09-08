@@ -16,14 +16,16 @@ export const VERTEX_SHADER = /* glsl */`
 export const FRAG_PRELUDE = /* glsl */`
   // --------------------------------------------------------------------------
   // Uniforms comunes
-  //   uTexture : textura de video (THREE.VideoTexture)
-  //   uTexel   : tamaño de un texel en coordenadas UV (1/ancho, 1/alto)
-  //   uUvScale : corrección de aspecto tipo "cover" (ver coverUv)
+  //   uTexture    : textura de video (THREE.VideoTexture)
+  //   uTexel      : tamaño de un texel en coordenadas UV (1/ancho, 1/alto)
+  //   uUvScale    : corrección de aspecto tipo "cover" (ver coverUv)
+  //   uResolution : tamaño del framebuffer en px físicos (= gl_FragCoord)
   // --------------------------------------------------------------------------
   uniform sampler2D uTexture;
   uniform vec2  uTexel;
   uniform vec2  uUvScale;
   uniform float uTime;
+  uniform vec2  uResolution;
   varying vec2 vUv;
 
   // Re-mapea el UV del quad recortando el exceso de video (modo "cover"):

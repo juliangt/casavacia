@@ -32,6 +32,7 @@ export class App {
       uTexel:   { value: new THREE.Vector2(1, 1) },
       uUvScale: { value: new THREE.Vector2(1, 1) },
       uTime:    { value: 0 },
+      uResolution: { value: new THREE.Vector2(1, 1) },
     };
 
     this.materials = {};
@@ -84,6 +85,8 @@ export class App {
     // tope de DPR aplicado también al girar el móvil / mover la ventana
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, CONFIG.maxPixelRatio));
     this.renderer.setSize(innerWidth, innerHeight, false); // false: CSS ya es 100%
+    // Tamaño del framebuffer (px × DPR): coincide con el rango de gl_FragCoord.
+    this.shared.uResolution.value.set(this.canvas.width, this.canvas.height);
     this.updateUvScale();
   }
 
