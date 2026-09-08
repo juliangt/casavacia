@@ -9,6 +9,39 @@ Blueprint arquitectónico (cianotipo con rejilla), Cómic / cel-shading
 
 ---
 
+## Estructura del proyecto
+
+HTML, CSS y JS están separados, y el JS está modularizado con ES modules
+(sin build ni bundler). Three.js se carga vía CDN con un *import map*
+declarado en `index.html` (único sitio donde se fija la versión):
+
+```
+index.html            Solo marcado + import map + carga de js/main.js
+css/
+  base.css            Reset, documento, canvas WebGL y <video> oculto
+  hud.css             Barra de filtros y chip de FPS
+  overlay.css         Overlay de arranque / error (spinner, botón primario)
+js/
+  main.js             Punto de entrada: flujos de cámara, reintento y arranque
+  config.js           CONFIG global y flags de URL (?debug, ?demo)
+  app.js              Motor Three.js (clase App): renderer, escena, materiales
+  filters.js          Registro de filtros (label, icono, uniforms, fragment)
+  icons.js            Iconos SVG inline
+  shaders/
+    common.js         Vertex shader + prelude GLSL compartido (coverUv, sobel…)
+    normal.js         Filtro: vista sin procesar
+    sketch.js         Filtro: boceto a lápiz
+    blueprint.js      Filtro: blueprint / cianotipo
+    comic.js          Filtro: cómic / cel-shading
+  sources/
+    camera.js         CameraSource (getUserMedia + VideoTexture)
+    demo.js           DemoSource (fuente sintética para ?demo)
+  ui/
+    overlay.js        Overlay de arranque / error y mapa de errores
+    filter-bar.js     Barra táctil de filtros (autogenerada desde el registro)
+    fps.js            Contador de FPS (modo ?debug)
+```
+
 ## Cómo funciona (arquitectura)
 
 ```
@@ -91,8 +124,8 @@ Pueden combinarse: `http://localhost:8080/?demo&debug`.
 ## Parámetros del fragment shader (filtro Lápiz)
 
 Los valores por defecto viven en `FILTERS.sketch.uniforms` dentro de
-`index.html` (sección *3. Registro de filtros*). Todos son float y admiten
-ajuste en caliente desde la consola del navegador:
+`js/filters.js`. Todos son float y admiten ajuste en caliente desde la
+consola del navegador:
 
 ```js
 // ejemplo: trazo más grueso y menos sensible
@@ -113,25 +146,33 @@ El filtro Cómic añade `uBands` (nº de niveles, 3–8) y `uSaturation` (0 = B/
 
 ## Añadir un filtro nuevo (arquitectura extensible)
 
-1. Escribe su `main()` en GLSL reutilizando el prelude (`sobel()`, `coverUv()`,
-   `luminance()`, `hash21()` y los uniforms `uTexture/uTexel/uUvScale/uTime`).
-2. Añade una entrada al registro `FILTERS` con `label`, `icon` (SVG inline),
-   `fragment` y sus `uniforms` propios.
+1. Crea `js/shaders/sepia.js` exportando su `main()` en GLSL, reutilizando el
+   prelude (`sobel()`, `coverUv()`, `luma()`, `hash21()` y los uniforms
+   `uTexture/uTexel/uUvScale/uTime`).
+2. Añade una entrada al registro `FILTERS` (`js/filters.js`) con `label`,
+   `icon` (SVG inline, en `js/icons.js`), `fragment` y sus `uniforms` propios.
 3. Nada más: la barra táctil, los materiales y la liberación de recursos se
    generan automáticamente desde el registro.
 
 ```js
+// js/filters.js
 sepia: {
   label: 'Sepia',
   icon: ICONS.sketch, // tu SVG
-  fragment: /* glsl */`
-    void main() {
-      vec3 c = texture2D(uTexture, coverUv(vUv)).rgb;
-      float l = luminance(c);
-      gl_FragColor = vec4(vec3(l) * vec3(1.1, 0.85, 0.6), 1.0);
-    }`,
+  fragment: FRAG_SEPIA,
   uniforms: {},
 },
+```
+
+```glsl
+// js/shaders/sepia.js
+export const FRAG_SEPIA = /* glsl */`
+  void main() {
+    vec3 c = texture2D(uTexture, coverUv(vUv)).rgb;
+    float l = luma(c);
+    gl_FragColor = vec4(vec3(l) * vec3(1.1, 0.85, 0.6), 1.0);
+  }
+`;
 ```
 
 ## Notas de compatibilidad móvil
@@ -139,18 +180,20 @@ sepia: {
 - **iOS Safari:** `playsinline` + `muted` permiten la reproducción automática
   sin gesto; el `<video>` permanece en el DOM a 1px (no `display:none`, que
   puede pausar el video en iOS). Requiere iOS ≥ 16.4 para ES modules + import
-  vía CDN sin polyfill.
+  maps sin polyfill.
 - **Android Chrome:** si el stream llega rotado, `videoWidth/videoHeight` ya
   reflejan la rotación aplicada, así que el cálculo de aspecto sigue válido.
 - **Permisos revocados:** el overlay de error indica cómo reactivarlos desde
   el candado de la barra de direcciones; el botón *Reintentar* reconstruye el
   stream liberando antes los recursos.
 - **Si baja de 60 fps:** reduce `CONFIG.video` a `960×540` o
-  `CONFIG.maxPixelRatio` a `1.5` (ambos al inicio de `index.html`).
+  `CONFIG.maxPixelRatio` a `1.5` (ambos en `js/config.js`).
 
 ## Archivos
 
 | Archivo | Contenido |
 |---|---|
-| `index.html` | Aplicación completa (CSS + shaders + JS), Three.js 0.185 vía CDN. Sin build. |
+| `index.html` | Marcado + import map de Three.js (0.185 vía CDN). Sin build. |
+| `css/` | Estilos separados por capa: base, HUD y overlay. |
+| `js/` | Aplicación modularizada en ES modules (ver estructura arriba). |
 | `README.md` | Este documento. |

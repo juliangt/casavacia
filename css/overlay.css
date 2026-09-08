@@ -1,0 +1,36 @@
+/* ============================================================
+   Overlay — pantalla de arranque / error sobre el canvas
+   ============================================================ */
+#overlay {
+  position: fixed; inset: 0; z-index: 10;
+  display: grid; place-items: center; padding: 28px; text-align: center;
+  background: radial-gradient(120% 120% at 50% 18%, #1d1f27 0%, #0a0a0c 72%);
+}
+#overlay .card {
+  max-width: 340px;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+}
+#ov-icon {
+  width: 64px; height: 64px; border-radius: 20px;
+  display: grid; place-items: center;
+  background: linear-gradient(145deg, #f5f3ec, #d8d4c6); color: #2a2a30;
+}
+#ov-icon svg { width: 34px; height: 34px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+#ov-icon.err { background: linear-gradient(145deg, #f7d9d3, #e3a598); }
+.spinner {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, .18); border-top-color: #f3f1ea;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+#ov-title { font-size: 21px; font-weight: 700; letter-spacing: -.01em; }
+#ov-text  { font-size: 13.5px; line-height: 1.55; color: #a7a7b0; }
+.hint { font-size: 11.5px; line-height: 1.5; color: #6c6c78; }
+button.primary {
+  appearance: none; border: 0; cursor: pointer;
+  padding: 14px 26px; border-radius: 14px;
+  background: #f3f1ea; color: #17171b;
+  font: 700 15px/1 inherit;
+  touch-action: manipulation; transition: transform .12s ease;
+}
+button.primary:active { transform: scale(.97); }
