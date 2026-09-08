@@ -1,0 +1,40 @@
+# Publica el sitio en GitHub Pages (juliangt.github.io/casavacia).
+# Disparo manual desde Actions → "Publicar en GitHub Pages" → Run workflow.
+name: Publicar en GitHub Pages
+
+on:
+  workflow_dispatch:
+
+# Permisos mínimos para desplegar a Pages con OIDC.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+
+      # El sitio es estático (HTML/CSS/JS sin build), así que se publica
+      # el contenido del repo tal cual.
+      - name: Configurar Pages
+        uses: actions/configure-pages@v5
+
+      - name: Subir artefacto
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Publicar
+        id: deployment
+        uses: actions/deploy-pages@v4
