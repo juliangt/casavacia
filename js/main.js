@@ -8,12 +8,15 @@ import { CameraSource } from './sources/camera.js';
 import { DemoSource } from './sources/demo.js';
 import { setOverlay, hideOverlay, showError, onOverlayAction } from './ui/overlay.js';
 import { buildFilterBar } from './ui/filter-bar.js';
+import { renderControls } from './ui/controls.js';
 import { createFpsMeter } from './ui/fps.js';
+import { DEFAULT_FILTER } from './filters.js';
 
 const $ = id => document.getElementById(id);
 const canvasEl = $('gl');
 const fpsEl = $('fps');
 const filtersEl = $('filters');
+const controlsEl = $('controls');
 const videoEl = $('cam');
 
 const fpsMeter = DEBUG ? createFpsMeter(fpsEl) : null;
@@ -58,7 +61,11 @@ canvasEl.addEventListener('webglcontextlost', e => {
 addEventListener('pagehide', () => app.source?.dispose(), { once: true });
 
 /* --- Arranque --------------------------------------------------------- */
-buildFilterBar(filtersEl, id => app.setFilter(id));
+buildFilterBar(filtersEl, id => {
+  app.setFilter(id);
+  renderControls(controlsEl, app, id);
+});
+renderControls(controlsEl, app, DEFAULT_FILTER);
 app.start();
 
 // Handle de depuración: permite ajustar uniforms en caliente desde la consola,
