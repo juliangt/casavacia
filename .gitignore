@@ -8,3 +8,9 @@
 # Por si el proyecto migra a Vite
 node_modules/
 dist/
+
+# Artefactos de sesión del editor ZCode
+.zcode/
+
+# Capturas de evidencia de pruebas GUI locales
+gui-test-screenshots/
