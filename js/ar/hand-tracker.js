@@ -21,6 +21,7 @@ export class HandTracker {
     this.video = video;
     this.detected = false;
     this.pinching = false;
+    this.pinchRatio = 0; // último ratio pulgar-índice (diagnóstico ?debug)
     this.landmarks = null;
     this.tip = { x: 0.5, y: 0.5 };
     this._landmarker = null;
@@ -101,6 +102,7 @@ export class HandTracker {
     const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     const ratio = dist(hand[THUMB], hand[INDEX_TIP])
                 / Math.max(dist(hand[WRIST], hand[MIDDLE_BASE]), 1e-6);
+    this.pinchRatio = ratio;
     if (!this.pinching && ratio < CONFIG.ar.pinchOn) this.pinching = true;
     else if (this.pinching && ratio > CONFIG.ar.pinchOff) this.pinching = false;
   }

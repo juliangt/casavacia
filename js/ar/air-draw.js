@@ -15,6 +15,18 @@
  * ========================================================================== */
 import { HandTracker } from './hand-tracker.js';
 import { StrokeCanvas } from './strokes.js';
+import { DEBUG } from '../config.js';
+
+// Conexiones del esqueleto de la mano (índices de landmarks de MediaPipe)
+// usadas solo por el overlay de diagnóstico de ?debug.
+const HAND_EDGES = [
+  [0, 1], [1, 2], [2, 3], [3, 4],         // pulgar
+  [0, 5], [5, 6], [6, 7], [7, 8],         // índice
+  [5, 9], [9, 10], [10, 11], [11, 12],    // corazón
+  [9, 13], [13, 14], [14, 15], [15, 16],  // anular
+  [13, 17], [17, 18], [18, 19], [19, 20], // meñique
+  [0, 17],
+];
 
 export function createAirDraw({ app, video, cursorEl, onState = () => {}, onStrokes = () => {} }) {
   const strokes = new StrokeCanvas();
@@ -22,6 +34,44 @@ export function createAirDraw({ app, video, cursorEl, onState = () => {}, onStro
   let active = false;
   let drawing = false;
   let inkBound = false; // ¿está la textura de trazos enlazada en App?
+
+  /* --- overlay de diagnóstico (?debug) ------------------------------------ */
+
+  const dbg = DEBUG ? createDebugOverlay() : null;
+
+  function drawDebug() {
+    if (!dbg) return;
+    const { ctx, canvas } = dbg;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!tracker?.detected) {
+      dbg.info(`sin mano · video ${video.videoWidth}×${video.videoHeight}`);
+      return;
+    }
+    const pts = tracker.landmarks.map(mapToViewport);
+    ctx.strokeStyle = ctx.fillStyle = 'rgba(90, 225, 130, .95)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (const [a, b] of HAND_EDGES) {
+      ctx.moveTo(pts[a].x * canvas.width, pts[a].y * canvas.height);
+      ctx.lineTo(pts[b].x * canvas.width, pts[b].y * canvas.height);
+    }
+    ctx.stroke();
+    for (const p of pts) {
+      ctx.beginPath();
+      ctx.arc(p.x * canvas.width, p.y * canvas.height, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Punta efectiva de dibujo (con la compensación tipExtend): cruz amarilla.
+    const t = mapToViewport(tracker.tip);
+    const tx = t.x * canvas.width, ty = t.y * canvas.height;
+    ctx.strokeStyle = '#ffd257';
+    ctx.beginPath();
+    ctx.moveTo(tx - 7, ty); ctx.lineTo(tx + 7, ty);
+    ctx.moveTo(tx, ty - 7); ctx.lineTo(tx, ty + 7);
+    ctx.stroke();
+    const s = app.shared.uUvScale.value;
+    dbg.info(`video ${video.videoWidth}×${video.videoHeight} · uvScale(${s.x.toFixed(2)}, ${s.y.toFixed(2)}) · pinch ${tracker.pinchRatio.toFixed(2)}${tracker.pinching ? ' ●' : ''}`);
+  }
 
   /* --- composición con el filtro activo ---------------------------------- */
 
@@ -67,6 +117,7 @@ export function createAirDraw({ app, video, cursorEl, onState = () => {}, onStro
     active = false;
     endStroke();
     cursorEl?.classList.remove('visible', 'pinching');
+    if (dbg) dbg.ctx.clearRect(0, 0, dbg.canvas.width, dbg.canvas.height);
     onState('idle');
   }
 
@@ -83,6 +134,7 @@ export function createAirDraw({ app, video, cursorEl, onState = () => {}, onStro
   function update() {
     if (!active || !tracker) return;
     tracker.update();
+    if (DEBUG) drawDebug();
 
     if (!tracker.detected) {
       endStroke(); // fin de trazo al perder la mano
@@ -154,5 +206,35 @@ export function createAirDraw({ app, video, cursorEl, onState = () => {}, onStro
   return {
     enable, disable, update, undo, clear, dispose,
     get active() { return active; },
+  };
+}
+
+/* Canvas fijo sobre el vídeo (solo ?debug): esqueleto de la mano con la
+   MISMA transformación que la tinta + línea de estado con datos de
+   diagnóstico (dimensiones del vídeo, uvScale y ratio de pellizco). */
+function createDebugOverlay() {
+  const canvas = document.createElement('canvas');
+  canvas.id = 'ar-debug';
+  Object.assign(canvas.style, {
+    position: 'fixed', inset: '0', width: '100%', height: '100%',
+    pointerEvents: 'none', zIndex: '3',
+  });
+  const fit = () => { canvas.width = innerWidth; canvas.height = innerHeight; };
+  addEventListener('resize', fit);
+  fit();
+  document.body.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+  return {
+    canvas, ctx,
+    info(text) {
+      ctx.font = '600 12px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.textBaseline = 'top';
+      const pad = 4, x = 8, y = 8;
+      const w = ctx.measureText(text).width;
+      ctx.fillStyle = 'rgba(10, 10, 12, .65)';
+      ctx.fillRect(x - pad, y - pad, w + 2 * pad, 12 + 2 * pad);
+      ctx.fillStyle = '#9fe8b1';
+      ctx.fillText(text, x, y);
+    },
   };
 }
