@@ -28,6 +28,7 @@ export const FRAG_BLUEPRINT = /* glsl */`
     vec3 ink = vec3(0.92, 0.97, 1.0);
 
     vec3 col = bg + grid * (0.6 + 0.4 * lum);
-    gl_FragColor = vec4(mix(col, ink, line), 1.0);
+    // Anotación técnica: los trazos AR son tinta blanca sobre el cianotipo.
+    gl_FragColor = vec4(applyInk(mix(col, ink, line), ink), 1.0);
   }
 `;

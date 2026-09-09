@@ -16,14 +16,20 @@ export const VERTEX_SHADER = /* glsl */`
 export const FRAG_PRELUDE = /* glsl */`
   // --------------------------------------------------------------------------
   // Uniforms comunes
-  //   uTexture : textura de video (THREE.VideoTexture)
-  //   uTexel   : tamaño de un texel en coordenadas UV (1/ancho, 1/alto)
-  //   uUvScale : corrección de aspecto tipo "cover" (ver coverUv)
+  //   uTexture    : textura de video (THREE.VideoTexture)
+  //   uTexel      : tamaño de un texel en coordenadas UV (1/ancho, 1/alto)
+  //   uUvScale    : corrección de aspecto tipo "cover" (ver coverUv)
+  //   uResolution : tamaño del framebuffer en px físicos (= gl_FragCoord)
+  //   uStrokes    : lienzo de trazos del modo AR (transparente; importa el alfa)
+  //   uInkStrength: 0 = sin trazos (composición desactivada) · 1 = activa
   // --------------------------------------------------------------------------
   uniform sampler2D uTexture;
   uniform vec2  uTexel;
   uniform vec2  uUvScale;
   uniform float uTime;
+  uniform vec2  uResolution;
+  uniform sampler2D uStrokes;
+  uniform float uInkStrength;
   varying vec2 vUv;
 
   // Re-mapea el UV del quad recortando el exceso de video (modo "cover"):
@@ -72,5 +78,16 @@ export const FRAG_PRELUDE = /* glsl */`
     p = fract(p * vec2(443.897, 441.423));
     p += dot(p, p.yx + 19.19);
     return fract((p.x + p.y) * p.x);
+  }
+
+  // --------------------------------------------------------------------------
+  // Trazos del modo AR «dibujo en el aire»: uStrokes es un lienzo 2D
+  // transparente del tamaño del viewport, así que vUv (el quad cubre la
+  // pantalla) alinea trazo y píxel sin matemáticas extra. Con
+  // uInkStrength = 0 el resultado es el color de entrada sin tocar.
+  // --------------------------------------------------------------------------
+  vec3 applyInk(vec3 color, vec3 inkColor) {
+    float a = texture2D(uStrokes, vUv).a * uInkStrength;
+    return mix(color, inkColor, a);
   }
 `;

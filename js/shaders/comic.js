@@ -28,6 +28,8 @@ export const FRAG_COMIC = /* glsl */`
     float g = sobel(uv, uThickness);
     float line = smoothstep(uEdgeThreshold, uEdgeThreshold + uEdgeSoftness, g) * uLineStrength;
 
-    gl_FragColor = vec4(mix(toon, vec3(0.06, 0.06, 0.08), line), 1.0);
+    vec3 inkColor = vec3(0.06, 0.06, 0.08);
+    vec3 color = mix(toon, inkColor, line);
+    gl_FragColor = vec4(applyInk(color, inkColor), 1.0);
   }
 `;
