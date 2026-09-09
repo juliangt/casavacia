@@ -42,7 +42,10 @@ import { createAirDraw } from '../../js/ar/air-draw.js';
 
 const log = document.getElementById('log');
 const say = t => { log.textContent = t; console.log('[harness]', t); };
-const VIDEO_W = 1280, VIDEO_H = 720;
+// ?v=portrait emula un teléfono vertical que entrega el frame ya vertical
+const P = new URLSearchParams(location.search);
+const VIDEO_W = P.get('v') === 'portrait' ? 720 : 1280;
+const VIDEO_H = P.get('v') === 'portrait' ? 1280 : 720;
 
 /* --- escena sintética (el "vídeo") ----------------------------------- */
 const scene = document.createElement('canvas');
@@ -132,6 +135,11 @@ try {
   say('activando tracking (descarga del modelo + jsfeat)…');
   await air.enable();
   if (state !== 'active') throw new Error('el modo no quedó activo: ' + state);
+  // ?nomask: control negativo — ignora la máscara de la mano en el flujo
+  if (P.has('nomask') && air.motion) {
+    const orig = air.motion.update.bind(air.motion);
+    air.motion.update = (frame, box) => orig(frame, null);
+  }
   drawScene(0, VIDEO_W / 2, VIDEO_H / 2);
   step(4);
   if (!air.tracker.detected) throw new Error('la mano sintética no se detecta');
@@ -188,7 +196,36 @@ try {
 
   drawScene(PAN_PX, VIDEO_W / 2 + PAN_PX, VIDEO_H / 2); // deja el frame final visible
   step(1);
-  say('LISTO ✓\n' + JSON.stringify(result.align) + '\n' + JSON.stringify(result.anchor));
+
+  /* C) CONTAMINACIÓN: la mano se mueve RESPECTO al mundo (y dibuja) mientras
+        la cámara panea; la marca previa debe seguir AL MUNDO, no a la mano. */
+  const mark0 = strokeScreenPx(stroke);
+  const PAN2 = 200;
+  for (let f = 1; f <= 40; f++) {
+    const pan = PAN_PX + PAN2 * f / 40;
+    const wig = Math.sin(f * 0.6) * 130;      // mano moviéndose dentro de la escena
+    drawScene(pan, VIDEO_W / 2 + pan + wig, VIDEO_H / 2 + 30);
+    simPinch = f > 10 && f < 16;              // además dibuja en medio del baile
+    step(1);
+  }
+  simPinch = false;
+  for (let f = 0; f < 10; f++) {              // estabilizar: mano fija en el mundo
+    drawScene(PAN_PX + PAN2, VIDEO_W / 2 + PAN_PX + PAN2, VIDEO_H / 2);
+    step(1);
+  }
+  const mark1 = strokeScreenPx(stroke);
+  const exp2 = mark0.x + (PAN2 / VIDEO_W) * s.x * innerWidth;
+  result.contamination = {
+    errPx: Math.round(Math.abs(mark1.x - exp2)),
+    esperadoX: Math.round(exp2), obtenidoX: Math.round(mark1.x),
+    delta: Math.round(mark1.x - mark0.x),
+    flowInliers: air.motion ? air.motion.confidence : -1,
+  };
+  say(`C) contaminación: esperado x=${Math.round(exp2)} · obtenido x=${Math.round(mark1.x)} (err ${Math.round(Math.abs(mark1.x - exp2))} px · inliers ${result.contamination.flowInliers})`);
+
+  drawScene(PAN_PX + PAN2, VIDEO_W / 2 + PAN_PX + PAN2, VIDEO_H / 2);
+  step(1);
+  say('LISTO ✓\n' + JSON.stringify(result.align) + '\n' + JSON.stringify(result.anchor) + '\n' + JSON.stringify(result.contamination));
   window.__done = true;
 } catch (err) {
   result.error = String(err?.message || err);

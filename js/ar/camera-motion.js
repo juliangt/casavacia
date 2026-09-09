@@ -212,8 +212,11 @@ export class CameraMotion {
     return { pyr, xy, count: pts.length, w, h };
   }
 
-  /** Acumula el movimiento entre el frame anterior y `frame` (canvas del tracker). */
-  update(frame) {
+  /** Acumula el movimiento entre el frame anterior y `frame` (canvas del
+   *  tracker). `maskBox` ({x0,y0,x1,y1} en uv del frame) excluye una región
+   *  del encuadre — la mano detectada — para que su movimiento no
+   *  contamine la estimación del movimiento de CÁMARA. */
+  update(frame, maskBox = null) {
     const jf = this._jsfeat;
     if (!jf || !frame || !frame.width || !frame.height) return this.transform;
 
@@ -233,6 +236,12 @@ export class CameraMotion {
         const px = prev.xy[i * 2], py = prev.xy[i * 2 + 1];
         const qx = curXY[i * 2], qy = curXY[i * 2 + 1];
         if (Math.abs(qx - px) > prev.w * MAX_JUMP || Math.abs(qy - py) > prev.h * MAX_JUMP) continue;
+        // Puntos dentro de la caja enmascarada (la mano) no dicen nada del
+        // movimiento de la cámara: se descartan.
+        if (maskBox) {
+          const nx = px / prev.w, ny = py / prev.h;
+          if (nx > maskBox.x0 && nx < maskBox.x1 && ny > maskBox.y0 && ny < maskBox.y1) continue;
+        }
         pairs.push(px, py, qx, qy);
       }
 

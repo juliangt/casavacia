@@ -238,6 +238,11 @@ con el banco de pruebas sintético (`test/ar/`) y de las pruebas en dispositivo:
   implementación): los trazos se guardan en coordenadas «mundo» y se
   re-proyectan cada frame con una similitud acumulada (RANSAC sobre flujo
   óptico LK). Validado numéricamente: error < 1 px con pan conocido.
+- **Máscara de la mano en el flujo óptico**: la caja que rodea a la mano
+  detectada se excluye de la estimación de movimiento — sin ella, al
+  dibujar, los trazos «se pegaban» al movimiento de la MANO (que domina el
+  encuadre) en vez de al mundo. Verificado con test de contaminación en
+  `test/ar/` (±1 px con máscara vs error creciente sin ella).
 - **Punta efectiva** (`CONFIG.ar.tipExtend`): el punto de dibujo se prolonga
   a lo largo del eje del dedo para compensar el curvado del índice al
   pellizcar; el pellizco se mide con los landmarks reales.

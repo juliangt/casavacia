@@ -149,10 +149,12 @@ export function createAirDraw({ app, video, cursorEl, onState = () => {}, onStro
     tracker.update();
 
     // Anclaje: estimar el movimiento de cámara de cada frame NUEVO y
-    // re-proyectar los trazos con la transformación acumulada.
+    // re-proyectar los trazos con la transformación acumulada. La región de
+    // la mano se enmascara para que SU movimiento no contamine la estimación
+    // (si no, al dibujar los trazos «se pegarían» a la mano, no al mundo).
     if (motion && tracker.frameId !== lastFrameId) {
       lastFrameId = tracker.frameId;
-      motion.update(tracker.frameCanvas);
+      motion.update(tracker.frameCanvas, handBox());
     }
     strokes.setCamera(app.shared.uUvScale.value, motion ? motion.transform : identity());
 
@@ -189,6 +191,24 @@ export function createAirDraw({ app, video, cursorEl, onState = () => {}, onStro
     } else {
       endStroke();
     }
+  }
+
+  /**
+   * Caja (uv del frame) que rodea la mano detectada, expandida para el
+   * enmascarado del flujo óptico. null si no hay mano.
+   */
+  function handBox() {
+    const lm = tracker?.landmarks;
+    if (!lm) return null;
+    let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+    for (const p of lm) {
+      if (p.x < x0) x0 = p.x;
+      if (p.y < y0) y0 = p.y;
+      if (p.x > x1) x1 = p.x;
+      if (p.y > y1) y1 = p.y;
+    }
+    const pad = 0.35 * Math.max(x1 - x0, y1 - y0);
+    return { x0: x0 - pad, y0: y0 - pad, x1: x1 + pad, y1: y1 + pad };
   }
 
   /**
