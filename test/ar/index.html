@@ -1,0 +1,201 @@
+<!doctype html>
+<!-- ===========================================================================
+  BANCO DE PRUEBAS del modo AR (no se despliega): cámara sintética.
+
+  Sustituye el <video> por un canvas donde se dibuja una foto de mano REAL
+  (assets/hand_model.png) sobre un fondo texturizado. Ejecuta el pipeline de
+  producción sin modificar (App + shaders + HandTracker + air-draw, incluido
+  el anclaje por flujo óptico) contra ese canvas y verifica NUMÉRICAMENTE:
+
+    A) alineación: la tinta cae sobre la punta del índice en pantalla;
+    B) anclaje: al desplazar el contenido de la escena (pan de cámara), el
+       trazo se desplaza con ella (queda anclado al mundo).
+
+  Resultados en window.__result y en #log.
+============================================================================ -->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Test AR sintético</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js",
+    "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/vision_bundle.mjs"
+  }
+}
+</script>
+<style>
+  body { margin: 0; background: #111; color: #eee; font: 13px/1.5 ui-monospace, monospace; }
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; }
+  #log { position: fixed; left: 8px; top: 8px; z-index: 9; max-width: 92vw;
+         background: rgba(0,0,0,.75); padding: 10px 12px; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="log">cargando…</div>
+<script type="module">
+import * as THREE from 'three';
+import { App } from '../../js/app.js';
+import { createAirDraw } from '../../js/ar/air-draw.js';
+
+const log = document.getElementById('log');
+const say = t => { log.textContent = t; console.log('[harness]', t); };
+const VIDEO_W = 1280, VIDEO_H = 720;
+
+/* --- escena sintética (el "vídeo") ----------------------------------- */
+const scene = document.createElement('canvas');
+scene.width = VIDEO_W; scene.height = VIDEO_H;
+const sctx = scene.getContext('2d');
+// props de vídeo para HandTracker (duck-typing: el canvas ES un ImageSource válido)
+scene.readyState = 4;
+scene.videoWidth = VIDEO_W;
+scene.videoHeight = VIDEO_H;
+let simTime = 0;
+
+const blobs = Array.from({ length: 90 }, () => ({
+  x: Math.random() * VIDEO_W, y: Math.random() * VIDEO_H,
+  r: 8 + Math.random() * 46, c: `hsl(${Math.random() * 360 | 0} 60% 55%)`,
+}));
+
+const handImg = new Image();
+handImg.crossOrigin = 'anonymous';
+
+/** Dibuja la escena con un pan horizontal (offset) y la mano en (hx, hy). */
+function drawScene(panX, hx, hy) {
+  sctx.fillStyle = '#20242b';
+  sctx.fillRect(0, 0, VIDEO_W, VIDEO_H);
+  sctx.save();
+  sctx.translate(panX, 0);               // el MUNDO entero se desplaza
+  sctx.strokeStyle = 'rgba(255,255,255,.10)';
+  for (let x = -VIDEO_W; x < VIDEO_W * 2; x += 64) {     // rejilla (features)
+    sctx.beginPath(); sctx.moveTo(x, -100); sctx.lineTo(x, VIDEO_H + 100); sctx.stroke();
+    sctx.beginPath(); sctx.moveTo(-VIDEO_W, x); sctx.lineTo(VIDEO_W * 2, x); sctx.stroke();
+  }
+  for (const b of blobs) {
+    sctx.fillStyle = b.c;
+    sctx.beginPath(); sctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); sctx.fill();
+  }
+  sctx.restore();
+  const s = 560; // mano a escala fija (≥480 px: menor no la detecta el palm detector)
+  sctx.drawImage(handImg, hx - s / 2, hy - s / 2, s, s);
+}
+
+/* --- pipeline de producción -------------------------------------------- */
+await new Promise((res, rej) => { handImg.onload = res; handImg.onerror = rej; handImg.src = 'assets/hand_model.png'; });
+
+const sceneTex = new THREE.CanvasTexture(scene);
+sceneTex.minFilter = sceneTex.magFilter = THREE.LinearFilter;
+sceneTex.generateMipmaps = false;
+const fakeSource = {
+  texture: sceneTex, width: VIDEO_W, height: VIDEO_H,
+  update() { sceneTex.needsUpdate = true; },
+};
+
+const app = new App(document.getElementById('gl'), { onFrame() {} });
+app.setSource(fakeSource);
+app.start();
+
+let state = '—';
+const air = createAirDraw({
+  app, video: scene, cursorEl: null,
+  onState(s, m) { state = s + (m ? ` (${m})` : ''); },
+  onStrokes() {},
+});
+
+let simPinch = false; // pellizco simulado: se aplica DESPUÉS de detectar
+function step(n = 1) {
+  for (let i = 0; i < n; i++) {
+    simTime += 1 / 30;
+    scene.currentTime = simTime;
+    air.tracker.update();                    // detección del frame nuevo
+    if (simPinch) air.tracker.pinching = true; // override (el update interno lo saltará)
+    air.update();                            // dibujo/estado con el pinching simulado
+    app.renderer.render(app.scene, app.camera); // render manual fuera de rAF
+  }
+}
+
+const centroidPx = pts => {
+  const acc = pts.reduce((a, p) => ({ x: a.x + p.x, y: a.y + p.y }), { x: 0, y: 0 });
+  return { x: acc.x / pts.length, y: acc.y / pts.length };
+};
+const strokeScreenPx = stroke => centroidPx(stroke.points.map(p => air.strokes.worldToScreen(p))
+  .map(u => ({ x: u.x * innerWidth, y: u.y * innerHeight })));
+
+/* --- pruebas ----------------------------------------------------------- */
+const result = { align: null, anchor: null, state: () => state };
+window.__result = result;
+window.__app = app;
+
+try {
+  say('activando tracking (descarga del modelo + jsfeat)…');
+  await air.enable();
+  if (state !== 'active') throw new Error('el modo no quedó activo: ' + state);
+  drawScene(0, VIDEO_W / 2, VIDEO_H / 2);
+  step(4);
+  if (!air.tracker.detected) throw new Error('la mano sintética no se detecta');
+
+  /* A) ALINEACIÓN: pellizco simulado mientras la mano se mueve un poco */
+  const tip0 = air.tracker.landmarks[8];
+  const tip0Px = air.mapToViewport(tip0);
+  const tipPx = { x: tip0Px.x * innerWidth, y: tip0Px.y * innerHeight };
+  simPinch = true;                    // pellizco simulado (solo en el banco de pruebas)
+  drawScene(0, VIDEO_W / 2 + 40, VIDEO_H / 2 + 20);
+  step(10);
+  simPinch = false;
+  step(2);
+
+  const stroke = air.strokes.strokes.at(-1);
+  if (!stroke || stroke.points.length < 3) throw new Error('no se generó trazo');
+  // aserción fina: último punto del trazo vs posición EFECTIVA (con
+  // compensación tipExtend) ya asentada
+  step(6); // dejar asentar el EMA sin cambiar la mano
+  const tipFin = air.mapToViewport(air.tracker.tip);
+  const tipFinPx = { x: tipFin.x * innerWidth, y: tipFin.y * innerHeight };
+  const lastWorld = stroke.points.at(-1);
+  const lastPx = air.strokes.worldToScreen(lastWorld);
+  const lastPxScreen = { x: lastPx.x * innerWidth, y: lastPx.y * innerHeight };
+  const errFine = Math.hypot(lastPxScreen.x - tipFinPx.x, lastPxScreen.y - tipFinPx.y);
+  const inkPx = strokeScreenPx(stroke);
+  const errAlign = Math.hypot(inkPx.x - tipPx.x, inkPx.y - tipPx.y);
+  result.align = {
+    errCentroidePx: Math.round(errAlign), errUltimoPuntoPx: +errFine.toFixed(1),
+    punta: [tipPx.x | 0, tipPx.y | 0], tinta: [inkPx.x | 0, inkPx.y | 0],
+    puntos: stroke.points.length,
+  };
+  say(`A) alineación: último punto a ${errFine.toFixed(1)} px de la punta · centroide (con lag EMA) a ${Math.round(errAlign)} px`);
+
+  /* B) ANCLAJE: pan de cámara; el mundo (y la mano con él) se desliza 300 px */
+  const before = strokeScreenPx(stroke);
+  const PAN_PX = 300;
+  for (let f = 1; f <= 50; f++) {
+    const pan = PAN_PX * f / 50;
+    drawScene(pan, VIDEO_W / 2 + pan, VIDEO_H / 2);
+    step(1);
+  }
+  step(5);
+  const after = strokeScreenPx(stroke);
+  const s = app.shared.uUvScale.value;
+  const expX = before.x + (PAN_PX / VIDEO_W) * s.x * innerWidth;
+  result.anchor = {
+    errPx: Math.round(Math.abs(after.x - expX)),
+    esperadoX: Math.round(expX), obtenidoX: Math.round(after.x),
+    delta: Math.round(after.x - before.x),
+    flowInliers: air.motion ? air.motion.confidence : -1,
+  };
+  say(`B) anclaje: esperado x=${Math.round(expX)} · obtenido x=${Math.round(after.x)} (Δ pantalla ${Math.round(after.x - before.x)} px · err ${Math.round(Math.abs(after.x - expX))} px · inliers ${result.anchor.flowInliers})`);
+
+  drawScene(PAN_PX, VIDEO_W / 2 + PAN_PX, VIDEO_H / 2); // deja el frame final visible
+  step(1);
+  say('LISTO ✓\n' + JSON.stringify(result.align) + '\n' + JSON.stringify(result.anchor));
+  window.__done = true;
+} catch (err) {
+  result.error = String(err?.message || err);
+  result.stack = String(err?.stack || '');
+  say('ERROR: ' + result.error);
+  console.error(err);
+}
+</script>
+</body>
+</html>

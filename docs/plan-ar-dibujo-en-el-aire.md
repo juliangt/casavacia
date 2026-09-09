@@ -165,8 +165,8 @@ vec3 applyInk(vec3 color, vec3 inkColor) {
 
 Documentar el modo AR: cómo funciona, módulos nuevos (`js/ar/`), parámetros en
 `CONFIG.ar`, nota de rendimiento (modelo cargado solo al activar; GPU delegate) y
-límite conocido: **los trazos viven en espacio de pantalla; no hay anclaje al mundo
-real sin SLAM** (posible evolución futura).
+y el anclaje de trazos al mundo por flujo óptico (añadido durante la
+implementación; ver «Notas de la implementación»).
 
 ## 4. Decisiones de diseño (resumen)
 
@@ -218,4 +218,34 @@ real sin SLAM** (posible evolución futura).
 - Color de tinta configurable por filtro (uniform `uInkColor` + control `color`).
 - Grosor de trazo modulado por la velocidad de la mano o la «presión» del pellizco.
 - Exportar/capturar la composición (vídeo filtrado + trazos) como imagen.
-- Anclaje de trazos al mundo real (requeriría estabilización/SLAM por imagen).
+- ~~Anclaje de trazos al mundo real~~ — **implementado** (ver nota abajo):
+  estabilización 2D por flujo óptico. Anclaje 3D con SLAM queda como
+  evolución posterior.
+
+---
+
+## 8. Notas de la implementación (2026-09-08)
+
+Desviaciones y hallazgos respecto del plan original, surgidos de la validación
+con el banco de pruebas sintético (`test/ar/`) y de las pruebas en dispositivo:
+
+- **Tracking por copia del frame**: `detectForVideo` analiza un canvas al que
+  el frame se copia con `drawImage` (no el `<video>` directo). Así el espacio
+  de los landmarks coincide con el del render en todas las plataformas: iOS
+  puede entregar frames del sensor girados respecto a cómo se texturizan, lo
+  que desplazaba los trazos (incluso fuera de pantalla).
+- **Anclaje al mundo** (`js/ar/camera-motion.js`, pedido durante la
+  implementación): los trazos se guardan en coordenadas «mundo» y se
+  re-proyectan cada frame con una similitud acumulada (RANSAC sobre flujo
+  óptico LK). Validado numéricamente: error < 1 px con pan conocido.
+- **Punta efectiva** (`CONFIG.ar.tipExtend`): el punto de dibujo se prolonga
+  a lo largo del eje del dedo para compensar el curvado del índice al
+  pellizcar; el pellizco se mide con los landmarks reales.
+- **Cursor en píxeles CSS** (`innerWidth/innerHeight`), no `vw/vh`: en móvil
+  `100vh` incluye la barra de direcciones y desplaza el anillo.
+- **jsfeat 0.0.8 por CDN**: su `fast_corners` es defectuoso en ese build (no
+  detecta esquinas reales) — la selección de puntos usa gradiente propio; y
+  la pirámide debe construirse con `build(gray, false)` (con `true` el
+  seguimiento LK queda a cero). Ambos verificados con desplazamiento conocido.
+- La versión fijada de MediaPipe es la **1.0.1** (la 0.10.x contemporánea al
+  plan ya no es la línea estable).

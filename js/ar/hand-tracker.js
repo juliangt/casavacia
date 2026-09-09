@@ -24,10 +24,18 @@ export class HandTracker {
     this.pinchRatio = 0; // último ratio pulgar-índice (diagnóstico ?debug)
     this.landmarks = null;
     this.tip = { x: 0.5, y: 0.5 };
+    this.frameId = 0;     // +1 por frame analizado (el anclaje lo usa para sincronizarse)
     this._landmarker = null;
     this._lastVideoTime = -1;
     this._ts = 0;
     this._hadHand = false;
+    // Copia del frame: detectForVideo analiza este canvas en lugar del
+    // <video>. drawImage rasteriza con la MISMA orientación con la que el
+    // vídeo se texturiza/muestra, así el espacio de los landmarks coincide
+    // con el del render en todas las plataformas (iOS puede entregar frames
+    // del sensor girados respecto a cómo se compositan). Ver air-draw.js.
+    this.frameCanvas = document.createElement('canvas');
+    this._fctx = this.frameCanvas.getContext('2d');
   }
 
   /** Carga MediaPipe y crea el landmarker (delegate GPU con fallback CPU). */
@@ -50,17 +58,27 @@ export class HandTracker {
 
   /** Detecta sobre el frame nuevo del vídeo (los frames repetidos se saltan). */
   update() {
-    if (!this._landmarker || this.video.readyState < 2) return;
-    if (this.video.currentTime === this._lastVideoTime) return;
-    this._lastVideoTime = this.video.currentTime;
+    const v = this.video;
+    if (!this._landmarker || !v || v.readyState < 2 || !v.videoWidth) return;
+    if (v.currentTime === this._lastVideoTime) return;
+    this._lastVideoTime = v.currentTime;
+
+    // Copia del frame → detección sobre el canvas (espacio garantizado
+    // igual al mostrado; el propio canvas sirve de entrada barata para el
+    // flujo óptico del anclaje).
+    if (this.frameCanvas.width !== v.videoWidth) this.frameCanvas.width = v.videoWidth;
+    if (this.frameCanvas.height !== v.videoHeight) this.frameCanvas.height = v.videoHeight;
+    this._fctx.drawImage(v, 0, 0);
+    this.frameId++;
+
     // detectForVideo exige timestamps estrictamente crecientes (ms).
     this._ts = Math.max(this._ts + 1, performance.now() | 0);
 
     let result;
     try {
-      result = this._landmarker.detectForVideo(this.video, this._ts);
+      result = this._landmarker.detectForVideo(this.frameCanvas, this._ts);
     } catch {
-      return; // frame no consumible (p. ej. dimensiones aún a 0): esperar el siguiente
+      return; // frame no consumible: esperar el siguiente
     }
 
     const hand = result?.landmarks?.[0];

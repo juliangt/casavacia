@@ -46,11 +46,15 @@ js/
     air-draw.js       Controlador del modo «dibujo en el aire»
     hand-tracker.js   MediaPipe HandLandmarker: suavizado EMA + pellizco
     strokes.js        Lienzo 2D → CanvasTexture de trazos (undo/clear)
+    camera-motion.js  Anclaje al mundo: flujo óptico (LK) + similitud RANSAC
   ui/
     overlay.js        Overlay de arranque / error y mapa de errores
     filter-bar.js     Barra táctil de filtros (autogenerada desde el registro)
     controls.js       Panel de opciones por filtro (campo `controls` del registro)
     fps.js            Contador de FPS (modo ?debug)
+test/
+  ar/                 Banco de pruebas del modo AR: cámara sintética con una
+                     mano real y aserciones numéricas (abrir test/ar/)
 ```
 
 ## Cómo funciona (arquitectura)
@@ -192,11 +196,30 @@ Chrome). Un anillo sigue la punta del índice; al **pellizcar** (pulgar +
 - El toggle solo enciende/apaga el tracking: los trazos ya dibujados siguen
   visibles (y componiéndose con el filtro) hasta Deshacer/Limpiar.
 
+### Anclaje al mundo real
+
+Los trazos **se quedan pegados a la escena**, no a la pantalla: al mover el
+móvil, el dibujo acompaña al mundo (`js/ar/camera-motion.js`). Cada frame de
+vídeo se analiza con flujo óptico disperso (puntos con gradiente 2D seguidos
+con Lucas-Kanade piramidal de **jsfeat**, cargado por CDN solo al activar el
+modo) y se ajusta una transformación de similitud robusta (RANSAC) que se
+acumula frame a frame; los trazos (guardados en coordenadas «mundo») se
+re-proyectan con ella al dibujarse. El propio tracker consume una copia del
+frame hecha con `drawImage`, garantizando que el espacio de los landmarks
+coincide con el del render en todas las plataformas (iOS puede entregar
+frames del sensor girados respecto a cómo se compositan).
+
+Límites de esta estabilización 2D por imagen (sin SLAM ni sensores): giros
+muy rápidos, superficies sin textura u oclusión de la lente degradan el
+anclaje — si el flujo no es fiable, la transformación se congela y el trazo
+se comporta como anclado a pantalla hasta recuperar tracking.
+
 ### Rendimiento y carga
 
-- MediaPipe Tasks Vision se carga por CDN con `import()` perezoso al activar
-  el modo (fijado en el import map de `index.html`); el modelo (~7 MB) y el
-  WASM solo se descargan entonces — la carga inicial del sitio queda intacta.
+- MediaPipe Tasks Vision y jsfeat se cargan por CDN con carga perezosa al
+  activar el modo (fijados en el import map de `index.html` y
+  `CONFIG.ar.jsfeatUrl`); el modelo (~7 MB) y el WASM solo se descargan
+  entonces — la carga inicial del sitio queda intacta.
 - El landmarker usa delegate **GPU con fallback CPU** y `numHands: 1`;
   solo se ejecuta `detectForVideo()` cuando el vídeo avanzó de frame.
 
@@ -210,13 +233,26 @@ Chrome). Un anillo sigue la punta del índice; al **pellizcar** (pulgar +
 | `strokeWidth` | Grosor del trazo como fracción del lado corto del viewport. |
 | `maxStrokeCanvas` | Tope de px del lienzo de trazos (lado largo). |
 | `breakJump` | Salto que corta el trazo (pérdida/reaparición de la mano). |
-| `wasmUrl` / `modelUrl` | CDNs de MediaPipe (la versión debe coincidir con el import map). |
+| `wasmUrl` / `modelUrl` / `jsfeatUrl` | CDNs de MediaPipe y jsfeat (la versión de MediaPipe debe coincidir con el import map). |
 
 ### Límite conocido (v1)
 
-Los trazos viven en **espacio de pantalla**: no hay anclaje al mundo real sin
-SLAM/estabilización por imagen (apuntado como evolución futura en
-`docs/plan-ar-dibujo-en-el-aire.md`).
+El anclaje es una estabilización 2D por flujo óptico: escenas sin textura,
+giros rápidos o tapar la lente lo degradan (se congela la última
+transformación válida). Anclaje 3D real requeriría SLAM/odometría inercial.
+
+## Banco de pruebas del modo AR (`test/ar/`)
+
+Cámara sintética (canvas con una foto de mano real sobre fondo texturizado)
+que ejecuta el pipeline de producción sin modificar y verifica numéricamente
+que la tinta cae sobre la punta del índice y que los trazos siguen al mundo
+al desplazar la escena. Útil como regresión tras tocar `js/ar/`:
+
+```bash
+python3 -m http.server 8080
+# abrir http://localhost:8080/test/ar/ (viewport móvil recomendado)
+# resultado en pantalla y en window.__result — align/anchor con errPx
+```
 
 ## Añadir un filtro nuevo (arquitectura extensible)
 

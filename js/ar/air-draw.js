@@ -15,6 +15,7 @@
  * ========================================================================== */
 import { HandTracker } from './hand-tracker.js';
 import { StrokeCanvas } from './strokes.js';
+import { CameraMotion, identity } from './camera-motion.js';
 import { DEBUG } from '../config.js';
 
 // Conexiones del esqueleto de la mano (índices de landmarks de MediaPipe)
@@ -31,6 +32,8 @@ const HAND_EDGES = [
 export function createAirDraw({ app, video, cursorEl, onState = () => {}, onStrokes = () => {} }) {
   const strokes = new StrokeCanvas();
   let tracker = null;
+  let motion = null;       // anclaje al mundo (null si jsfeat no carga)
+  let lastFrameId = -1;    // sincroniza el flujo óptico con frames nuevos
   let active = false;
   let drawing = false;
   let inkBound = false; // ¿está la textura de trazos enlazada en App?
@@ -70,7 +73,7 @@ export function createAirDraw({ app, video, cursorEl, onState = () => {}, onStro
     ctx.moveTo(tx, ty - 7); ctx.lineTo(tx, ty + 7);
     ctx.stroke();
     const s = app.shared.uUvScale.value;
-    dbg.info(`video ${video.videoWidth}×${video.videoHeight} · uvScale(${s.x.toFixed(2)}, ${s.y.toFixed(2)}) · pinch ${tracker.pinchRatio.toFixed(2)}${tracker.pinching ? ' ●' : ''}`);
+    dbg.info(`video ${video.videoWidth}×${video.videoHeight} · uvScale(${s.x.toFixed(2)}, ${s.y.toFixed(2)}) · pinch ${tracker.pinchRatio.toFixed(2)}${tracker.pinching ? ' ●' : ''}${motion ? ` · flow ${motion.confidence}/${motion.points}` : ''}`);
   }
 
   /* --- composición con el filtro activo ---------------------------------- */
@@ -96,15 +99,25 @@ export function createAirDraw({ app, video, cursorEl, onState = () => {}, onStro
     if (active) return;
     onState('loading');
     tracker = new HandTracker(video);
+    motion = new CameraMotion();
     try {
-      await tracker.start();
+      await Promise.all([
+        tracker.start(),
+        // El anclaje es opcional: sin flujo óptico se dibuja en pantalla.
+        motion.start().catch(err => {
+          console.warn('[ar] anclaje al mundo desactivado:', err);
+          motion = null;
+        }),
+      ]);
     } catch (err) {
       console.warn('[ar] no se pudo iniciar el tracking:', err);
       tracker.dispose();
       tracker = null;
+      motion = null;
       onState('error', 'No se pudo cargar el seguimiento de mano. Revisa la conexión e inténtalo de nuevo.');
       return;
     }
+    lastFrameId = -1;
     active = true;
     onState('active');
   }
@@ -134,6 +147,15 @@ export function createAirDraw({ app, video, cursorEl, onState = () => {}, onStro
   function update() {
     if (!active || !tracker) return;
     tracker.update();
+
+    // Anclaje: estimar el movimiento de cámara de cada frame NUEVO y
+    // re-proyectar los trazos con la transformación acumulada.
+    if (motion && tracker.frameId !== lastFrameId) {
+      lastFrameId = tracker.frameId;
+      motion.update(tracker.frameCanvas);
+    }
+    strokes.setCamera(app.shared.uUvScale.value, motion ? motion.transform : identity());
+
     if (DEBUG) drawDebug();
 
     if (!tracker.detected) {
@@ -153,13 +175,16 @@ export function createAirDraw({ app, video, cursorEl, onState = () => {}, onStro
     }
 
     if (tracker.pinching) {
+      // La tinta se guarda en coords MUNDO (espacio del vídeo): así el
+      // movimiento de cámara posterior la re-proyecta anclada a la escena.
+      const w = strokes.fromScreen(p.x, p.y);
       if (!drawing) {
-        strokes.begin(p.x, p.y);
+        strokes.begin(w);
         drawing = true;
         bindInk();
         onStrokes(true);
       } else {
-        strokes.extend(p.x, p.y);
+        strokes.extend(w);
       }
     } else {
       endStroke();
@@ -175,8 +200,8 @@ export function createAirDraw({ app, video, cursorEl, onState = () => {}, onStro
    */
   function mapToViewport(tip) {
     const s = app.shared.uUvScale.value;
-    const u = (tip.x - 0.5) / s.x + 0.5;
-    const v = ((1 - tip.y) - 0.5) / s.y + 0.5; // landmark y↓ → textura v↑
+    const u = (tip.x - 0.5) / Math.max(s.x, 1e-4) + 0.5;
+    const v = ((1 - tip.y) - 0.5) / Math.max(s.y, 1e-4) + 0.5; // landmark y↓ → textura v↑
     return { x: u, y: 1 - v };
   }
 
@@ -205,7 +230,10 @@ export function createAirDraw({ app, video, cursorEl, onState = () => {}, onStro
 
   return {
     enable, disable, update, undo, clear, dispose,
+    strokes, mapToViewport,
     get active() { return active; },
+    get tracker() { return tracker; },
+    get motion() { return motion; },
   };
 }
 
