@@ -13,6 +13,8 @@ export const CONFIG = Object.freeze({
   // Modo AR «dibujo en el aire» (ver js/ar/ y docs/plan-ar-dibujo-en-el-aire.md)
   ar: {
     smoothAlpha: 0.45,     // suavizado EMA de la punta del índice (0 rígido · 1 sin suavizar)
+    tipExtend: 0.35,       // prolonga el punto de dibujo más allá de la punta a lo largo
+                           // del eje del dedo (compensa el curvado del índice al pellizcar)
     pinchOn: 0.32,         // pellizco «abajo»: d(pulgar,índice)/d(muñeca,base corazón)
     pinchOff: 0.45,        // pellizco «arriba» (histéresis: siempre > pinchOn)
     strokeWidth: 0.014,    // grosor del trazo (fracción del lado corto del viewport)

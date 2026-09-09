@@ -14,7 +14,7 @@
  * ========================================================================== */
 import { CONFIG } from '../config.js';
 
-const THUMB = 4, INDEX_TIP = 8, WRIST = 0, MIDDLE_BASE = 9;
+const THUMB = 4, INDEX_PIP = 6, INDEX_TIP = 8, WRIST = 0, MIDDLE_BASE = 9;
 
 export class HandTracker {
   constructor(video) {
@@ -74,9 +74,17 @@ export class HandTracker {
     this.detected = true;
     this.landmarks = hand;
 
-    // EMA de la punta del índice; se reinicia al reaparecer la mano para que
-    // el cursor no "vuele" desde la última posición conocida.
-    const raw = hand[INDEX_TIP];
+    // Punta EFECTIVA: el landmark 8 cae donde la punta se curva al pellizcar
+    // (por debajo de donde se apunta con el dedo), así que el punto de dibujo
+    // se prolonga a lo largo del eje del dedo (nudillo 6 → punta 8) hasta la
+    // "uña visual". El pellizco sí se mide con los landmarks reales.
+    const raw = {
+      x: hand[INDEX_TIP].x + (hand[INDEX_TIP].x - hand[INDEX_PIP].x) * CONFIG.ar.tipExtend,
+      y: hand[INDEX_TIP].y + (hand[INDEX_TIP].y - hand[INDEX_PIP].y) * CONFIG.ar.tipExtend,
+    };
+
+    // EMA de la punta; se reinicia al reaparecer la mano para que el cursor
+    // no "vuele" desde la última posición conocida.
     if (this._hadHand) {
       const a = CONFIG.ar.smoothAlpha;
       this.tip.x += (raw.x - this.tip.x) * a;

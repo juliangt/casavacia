@@ -92,7 +92,10 @@ export function createAirDraw({ app, video, cursorEl, onState = () => {}, onStro
 
     const p = mapToViewport(tracker.tip);
     if (cursorEl) {
-      cursorEl.style.transform = `translate(${(p.x * 100).toFixed(2)}vw, ${(p.y * 100).toFixed(2)}vh)`;
+      // Píxeles CSS reales (innerWidth/innerHeight, igual que el canvas WebGL):
+      // las unidades vw/vh quedan desplazadas en móvil, donde 100vh incluye la
+      // barra de direcciones y no coincide con el área visible.
+      cursorEl.style.transform = `translate(${(p.x * innerWidth).toFixed(1)}px, ${(p.y * innerHeight).toFixed(1)}px)`;
       cursorEl.classList.add('visible');
       cursorEl.classList.toggle('pinching', tracker.pinching);
     }

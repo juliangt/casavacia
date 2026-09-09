@@ -205,6 +205,7 @@ Chrome). Un anillo sigue la punta del índice; al **pellizcar** (pulgar +
 | Clave | Qué controla |
 |---|---|
 | `smoothAlpha` | Suavizado EMA de la punta del índice (0 rígido · 1 sin suavizar). |
+| `tipExtend` | Compensación del curvado del índice al pellizcar: prolonga el punto de dibujo a lo largo del eje del dedo (fracción de la distancia nudillo→punta). |
 | `pinchOn` / `pinchOff` | Histéresis del pellizco: distancia pulgar-índice normalizada por el tamaño de la mano (invariante a la profundidad). |
 | `strokeWidth` | Grosor del trazo como fracción del lado corto del viewport. |
 | `maxStrokeCanvas` | Tope de px del lienzo de trazos (lado largo). |
